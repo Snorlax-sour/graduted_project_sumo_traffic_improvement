@@ -1,66 +1,262 @@
-***Starting server on port 46391 ***
-Loading net-file from './osm.net.xml.gz' ... done (220ms).
-Loading additional-files from './osm.poly.xml.gz' ... done (56ms).
-Loading additional-files from './osm_stops.add.xml' ... done (14ms).
-Loading additional-files from './output.add.xml' ... done (14ms).
-Loading route-files incrementally from './osm_pt.rou.xml'
-Loading route-files incrementally from './osm.bus.trips.xml'
-Loading route-files incrementally from './osm.motorcycle.trips.xml'
-Loading route-files incrementally from './osm.passenger.trips.xml'
-Loading route-files incrementally from './osm.truck.trips.xml'
-Loading done.
-Simulation version 1.24.0 started with time: 0.00.
-Simulation ended at time: 0.00.
-Reason: TraCI requested termination.
-Performance:
- Duration: 0.24s
- TraCI-Duration: 0.00s
- Real time factor: 0
- UPS: 0.000000
-Vehicles:
- Inserted: 0 (Loaded: 8)
- Running: 0
- Waiting: 0
-Statistics (avg of 0):
- RouteLength: 0.00
- Speed: 0.00
- Duration: 0.00
- WaitingTime: 0.00
- TimeLoss: 0.00
- DepartDelay: 0.00
-***Starting server on port 46501 ***
-Loading net-file from './osm.net.xml.gz' ... done (236ms).
-Loading additional-files from './osm.poly.xml.gz' ... done (61ms).
-Loading additional-files from './osm_stops.add.xml' ... done (14ms).
-Loading additional-files from './output.add.xml' ... done (17ms).
-Loading route-files incrementally from './osm_pt.rou.xml'
-Loading route-files incrementally from './osm.bus.trips.xml'
-Loading route-files incrementally from './osm.motorcycle.trips.xml'
-Loading route-files incrementally from './osm.passenger.trips.xml'
-Loading route-files incrementally from './osm.truck.trips.xml'
-Loading done.
-Simulation version 1.24.0 started with time: 0.00.
-Simulation ended at time: 1.00.
-Reason: TraCI requested termination.
-Performance:
- Duration: 0.26s
- TraCI-Duration: 0.00s
- Real time factor: 3.861
- UPS: 11.583012
-Vehicles:
- Inserted: 3 (Loaded: 8)
- Running: 3
- Waiting: 1
-Statistics (avg of 0):
- RouteLength: 0.00
- Speed: 0.00
- Duration: 0.00
- WaitingTime: 0.00
- TimeLoss: 0.00
- DepartDelay: 0.00
-DijkstraRouter answered 6 queries and explored 278.50 edges on average.
-DijkstraRouter spent 0.00s answering queries (0.50ms on average).
  Retrying in 1 seconds
 成功獲取交通號誌 '1253678773' 的相位總數: 4
- Retrying in 1 seconds
-目前模擬時間: 0 秒, 狀態: (0, 0, 0, 0), 動作: 1, 獎勵: -0.00
+時間: 10s | 獎勵: 0.00 | Epsilon: 0.951
+時間: 20s | 獎勵: 0.00 | Epsilon: 0.905
+時間: 30s | 獎勵: 0.00 | Epsilon: 0.860
+時間: 40s | 獎勵: 0.00 | Epsilon: 0.818
+時間: 50s | 獎勵: 0.00 | Epsilon: 0.778
+時間: 60s | 獎勵: 0.00 | Epsilon: 0.740
+時間: 70s | 獎勵: -1.00 | Epsilon: 0.704
+時間: 80s | 獎勵: -1.00 | Epsilon: 0.670
+時間: 90s | 獎勵: 0.00 | Epsilon: 0.637
+時間: 100s | 獎勵: 0.00 | Epsilon: 0.606
+時間: 110s | 獎勵: 0.00 | Epsilon: 0.576
+時間: 120s | 獎勵: 7.00 | Epsilon: 0.548
+時間: 130s | 獎勵: -1.00 | Epsilon: 0.521
+時間: 140s | 獎勵: -1.00 | Epsilon: 0.496
+時間: 150s | 獎勵: -1.00 | Epsilon: 0.471
+時間: 160s | 獎勵: -1.00 | Epsilon: 0.448
+時間: 170s | 獎勵: 0.00 | Epsilon: 0.427
+時間: 180s | 獎勵: 14.00 | Epsilon: 0.406
+時間: 190s | 獎勵: 0.00 | Epsilon: 0.386
+時間: 200s | 獎勵: -1.00 | Epsilon: 0.367
+時間: 210s | 獎勵: 0.00 | Epsilon: 0.349
+時間: 220s | 獎勵: 0.00 | Epsilon: 0.332
+時間: 230s | 獎勵: -1.00 | Epsilon: 0.316
+時間: 240s | 獎勵: -1.00 | Epsilon: 0.300
+時間: 250s | 獎勵: 8.00 | Epsilon: 0.286
+時間: 260s | 獎勵: -2.00 | Epsilon: 0.272
+時間: 270s | 獎勵: -1.00 | Epsilon: 0.258
+時間: 280s | 獎勵: 0.00 | Epsilon: 0.246
+時間: 290s | 獎勵: 0.00 | Epsilon: 0.234
+時間: 300s | 獎勵: 0.00 | Epsilon: 0.222
+時間: 310s | 獎勵: 0.00 | Epsilon: 0.211
+時間: 320s | 獎勵: 0.00 | Epsilon: 0.201
+時間: 330s | 獎勵: 0.00 | Epsilon: 0.191
+時間: 340s | 獎勵: 4.00 | Epsilon: 0.182
+時間: 350s | 獎勵: -2.00 | Epsilon: 0.173
+時間: 360s | 獎勵: -1.00 | Epsilon: 0.165
+時間: 370s | 獎勵: 0.00 | Epsilon: 0.157
+時間: 380s | 獎勵: 0.00 | Epsilon: 0.149
+時間: 390s | 獎勵: -1.00 | Epsilon: 0.142
+時間: 400s | 獎勵: 0.00 | Epsilon: 0.135
+時間: 410s | 獎勵: 0.00 | Epsilon: 0.128
+時間: 420s | 獎勵: -2.00 | Epsilon: 0.122
+時間: 430s | 獎勵: -1.00 | Epsilon: 0.116
+時間: 440s | 獎勵: -2.00 | Epsilon: 0.110
+時間: 450s | 獎勵: 1.00 | Epsilon: 0.105
+時間: 460s | 獎勵: 0.00 | Epsilon: 0.100
+時間: 470s | 獎勵: 3.00 | Epsilon: 0.095
+時間: 480s | 獎勵: -2.00 | Epsilon: 0.090
+時間: 490s | 獎勵: -2.00 | Epsilon: 0.086
+時間: 500s | 獎勵: 0.00 | Epsilon: 0.082
+時間: 510s | 獎勵: 5.00 | Epsilon: 0.078
+時間: 520s | 獎勵: -4.00 | Epsilon: 0.074
+時間: 530s | 獎勵: -1.00 | Epsilon: 0.070
+時間: 540s | 獎勵: -1.00 | Epsilon: 0.067
+時間: 550s | 獎勵: 11.00 | Epsilon: 0.063
+時間: 560s | 獎勵: -1.00 | Epsilon: 0.060
+時間: 570s | 獎勵: 0.00 | Epsilon: 0.057
+時間: 580s | 獎勵: 0.00 | Epsilon: 0.055
+時間: 590s | 獎勵: 0.00 | Epsilon: 0.052
+時間: 600s | 獎勵: -1.00 | Epsilon: 0.050
+時間: 610s | 獎勵: 0.00 | Epsilon: 0.050
+時間: 620s | 獎勵: -2.00 | Epsilon: 0.050
+時間: 630s | 獎勵: 0.00 | Epsilon: 0.050
+時間: 640s | 獎勵: -3.00 | Epsilon: 0.050
+時間: 650s | 獎勵: -1.00 | Epsilon: 0.050
+時間: 660s | 獎勵: 0.00 | Epsilon: 0.050
+時間: 670s | 獎勵: 0.00 | Epsilon: 0.050
+時間: 680s | 獎勵: 0.00 | Epsilon: 0.050
+時間: 690s | 獎勵: 1.00 | Epsilon: 0.050
+時間: 700s | 獎勵: -2.00 | Epsilon: 0.050
+時間: 710s | 獎勵: -1.00 | Epsilon: 0.050
+時間: 720s | 獎勵: 0.00 | Epsilon: 0.050
+時間: 730s | 獎勵: -1.00 | Epsilon: 0.050
+時間: 740s | 獎勵: 1.00 | Epsilon: 0.050
+時間: 750s | 獎勵: 0.00 | Epsilon: 0.050
+時間: 760s | 獎勵: -1.00 | Epsilon: 0.050
+時間: 770s | 獎勵: -1.00 | Epsilon: 0.050
+時間: 780s | 獎勵: -1.00 | Epsilon: 0.050
+時間: 790s | 獎勵: -1.00 | Epsilon: 0.050
+時間: 800s | 獎勵: -1.00 | Epsilon: 0.050
+時間: 810s | 獎勵: -1.00 | Epsilon: 0.050
+時間: 820s | 獎勵: -2.00 | Epsilon: 0.050
+時間: 830s | 獎勵: -2.00 | Epsilon: 0.050
+時間: 840s | 獎勵: -3.00 | Epsilon: 0.050
+時間: 850s | 獎勵: -4.00 | Epsilon: 0.050
+時間: 860s | 獎勵: -3.00 | Epsilon: 0.050
+時間: 870s | 獎勵: -3.00 | Epsilon: 0.050
+時間: 880s | 獎勵: -3.00 | Epsilon: 0.050
+時間: 890s | 獎勵: -5.00 | Epsilon: 0.050
+時間: 900s | 獎勵: -8.00 | Epsilon: 0.050
+時間: 910s | 獎勵: -9.00 | Epsilon: 0.050
+時間: 920s | 獎勵: -10.00 | Epsilon: 0.050
+時間: 930s | 獎勵: -12.00 | Epsilon: 0.050
+時間: 940s | 獎勵: -12.00 | Epsilon: 0.050
+時間: 950s | 獎勵: -13.00 | Epsilon: 0.050
+時間: 960s | 獎勵: -14.00 | Epsilon: 0.050
+時間: 970s | 獎勵: -18.00 | Epsilon: 0.050
+時間: 980s | 獎勵: -6.00 | Epsilon: 0.050
+時間: 990s | 獎勵: -17.00 | Epsilon: 0.050
+時間: 1000s | 獎勵: -19.00 | Epsilon: 0.050
+時間: 1010s | 獎勵: -18.00 | Epsilon: 0.050
+時間: 1020s | 獎勵: -26.00 | Epsilon: 0.050
+時間: 1030s | 獎勵: -28.00 | Epsilon: 0.050
+時間: 1040s | 獎勵: -29.00 | Epsilon: 0.050
+時間: 1050s | 獎勵: -30.00 | Epsilon: 0.050
+時間: 1060s | 獎勵: -30.00 | Epsilon: 0.050
+時間: 1070s | 獎勵: 30.00 | Epsilon: 0.050
+時間: 1080s | 獎勵: -24.00 | Epsilon: 0.050
+時間: 1090s | 獎勵: -30.00 | Epsilon: 0.050
+時間: 1100s | 獎勵: -31.00 | Epsilon: 0.050
+時間: 1110s | 獎勵: -32.00 | Epsilon: 0.050
+時間: 1120s | 獎勵: -32.00 | Epsilon: 0.050
+時間: 1130s | 獎勵: -32.00 | Epsilon: 0.050
+時間: 1140s | 獎勵: -32.00 | Epsilon: 0.050
+時間: 1150s | 獎勵: -32.00 | Epsilon: 0.050
+時間: 1160s | 獎勵: -32.00 | Epsilon: 0.050
+時間: 1170s | 獎勵: -33.00 | Epsilon: 0.050
+時間: 1180s | 獎勵: -34.00 | Epsilon: 0.050
+時間: 1190s | 獎勵: -34.00 | Epsilon: 0.050
+時間: 1200s | 獎勵: -34.00 | Epsilon: 0.050
+時間: 1210s | 獎勵: -34.00 | Epsilon: 0.050
+時間: 1220s | 獎勵: -34.00 | Epsilon: 0.050
+時間: 1230s | 獎勵: -34.00 | Epsilon: 0.050
+時間: 1240s | 獎勵: -34.00 | Epsilon: 0.050
+時間: 1250s | 獎勵: -34.00 | Epsilon: 0.050
+時間: 1260s | 獎勵: -34.00 | Epsilon: 0.050
+時間: 1270s | 獎勵: -34.00 | Epsilon: 0.050
+時間: 1280s | 獎勵: -34.00 | Epsilon: 0.050
+時間: 1290s | 獎勵: -35.00 | Epsilon: 0.050
+時間: 1300s | 獎勵: -35.00 | Epsilon: 0.050
+時間: 1310s | 獎勵: -35.00 | Epsilon: 0.050
+時間: 1320s | 獎勵: -36.00 | Epsilon: 0.050
+時間: 1330s | 獎勵: -36.00 | Epsilon: 0.050
+時間: 1340s | 獎勵: -37.00 | Epsilon: 0.050
+時間: 1350s | 獎勵: -37.00 | Epsilon: 0.050
+時間: 1360s | 獎勵: -37.00 | Epsilon: 0.050
+時間: 1370s | 獎勵: -37.00 | Epsilon: 0.050
+時間: 1380s | 獎勵: -37.00 | Epsilon: 0.050
+時間: 1390s | 獎勵: -37.00 | Epsilon: 0.050
+時間: 1400s | 獎勵: -37.00 | Epsilon: 0.050
+時間: 1410s | 獎勵: -37.00 | Epsilon: 0.050
+時間: 1420s | 獎勵: -37.00 | Epsilon: 0.050
+時間: 1430s | 獎勵: -37.00 | Epsilon: 0.050
+時間: 1440s | 獎勵: -37.00 | Epsilon: 0.050
+時間: 1450s | 獎勵: -37.00 | Epsilon: 0.050
+時間: 1460s | 獎勵: -37.00 | Epsilon: 0.050
+時間: 1470s | 獎勵: -37.00 | Epsilon: 0.050
+時間: 1480s | 獎勵: -37.00 | Epsilon: 0.050
+時間: 1490s | 獎勵: -37.00 | Epsilon: 0.050
+時間: 1500s | 獎勵: -37.00 | Epsilon: 0.050
+時間: 1510s | 獎勵: -37.00 | Epsilon: 0.050
+時間: 1520s | 獎勵: -37.00 | Epsilon: 0.050
+時間: 1530s | 獎勵: -37.00 | Epsilon: 0.050
+時間: 1540s | 獎勵: -37.00 | Epsilon: 0.050
+時間: 1550s | 獎勵: -37.00 | Epsilon: 0.050
+時間: 1560s | 獎勵: -38.00 | Epsilon: 0.050
+時間: 1570s | 獎勵: -38.00 | Epsilon: 0.050
+時間: 1580s | 獎勵: -38.00 | Epsilon: 0.050
+時間: 1590s | 獎勵: -38.00 | Epsilon: 0.050
+時間: 1600s | 獎勵: -38.00 | Epsilon: 0.050
+時間: 1610s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 1620s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 1630s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 1640s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 1650s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 1660s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 1670s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 1680s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 1690s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 1700s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 1710s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 1720s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 1730s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 1740s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 1750s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 1760s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 1770s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 1780s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 1790s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 1800s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 1810s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 1820s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 1830s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 1840s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 1850s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 1860s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 1870s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 1880s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 1890s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 1900s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 1910s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 1920s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 1930s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 1940s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 1950s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 1960s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 1970s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 1980s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 1990s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 2000s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 2010s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 2020s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 2030s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 2040s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 2050s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 2060s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 2070s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 2080s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 2090s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 2100s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 2110s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 2120s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 2130s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 2140s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 2150s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 2160s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 2170s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 2180s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 2190s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 2200s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 2210s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 2220s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 2230s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 2240s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 2250s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 2260s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 2270s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 2280s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 2290s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 2300s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 2310s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 2320s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 2330s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 2340s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 2350s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 2360s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 2370s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 2380s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 2390s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 2400s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 2410s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 2420s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 2430s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 2440s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 2450s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 2460s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 2470s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 2480s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 2490s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 2500s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 2510s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 2520s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 2530s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 2540s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 2550s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 2560s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 2570s | 獎勵: -39.00 | Epsilon: 0.050
+時間: 2580s | 獎勵: -40.00 | Epsilon: 0.050
+時間: 2590s | 獎勵: -40.00 | Epsilon: 0.050
+正在關閉模擬...

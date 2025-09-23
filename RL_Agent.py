@@ -8,13 +8,15 @@ class RLAgent:
         self.discount_factor = 0.9       # 折扣因子 (gamma): 對未來的獎勵有多重視
         self.exploration_rate = 1.0      # 探索率 (epsilon): 一開始有 100% 的機率亂試
         self.exploration_decay = 0.995   # 探索率衰減: 每次學習後，減少亂試的機率
-        self.min_exploration = 0.01      # 最小探索率: 確保它永遠有機會嘗試新東西
+        self.min_exploration = 0.05      # 最小探索率: 確保它永遠有機會嘗試新東西
+        # 提高最小探索率
 
         # Q-table: 智能體的「大腦」或「記憶筆記本」
         # 我們用一個字典來儲存，格式是: { 狀態: [動作0的分數, 動作1的分數, ...] }
         self.q_table = {}
 
     def choose_action(self, state):
+        state = str(state) # 將 state (tuple) 轉為字串，使其可以作為字典的 key
         # 根據當前狀態，決定下一步要做什麼動作 (探索 vs. 利用)
         if random.uniform(0, 1) < self.exploration_rate:
             # 隨機探索：隨便選一個動作
@@ -28,13 +30,14 @@ class RLAgent:
 
     def learn(self, state, action, reward, next_state):
         # 智能體學習的核心 (更新 Q-table)
-        
+        state = str(state)
+        next_state = str(next_state)
         # 獲取舊的分數
         old_q_values = self.q_table.get(state, [0] * len(self.action_space))
         old_value = old_q_values[action]
 
         # 計算下一個狀態能得到的最好分數是多少
-        next_max = max(self.q_table.get(next_state, [0] * len(self.action_space)))
+        next_max = max(self.q_table.get(next_state, [0.0] * len(self.action_space)))
         
         # 這是 Q-Learning 的核心公式
         # 新分數 = (1 - 學習率) * 舊分數 + 學習率 * (獎勵 + 折扣因子 * 未來的最好分數)

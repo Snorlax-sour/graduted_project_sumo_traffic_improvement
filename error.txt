@@ -1,23 +1,16 @@
-/home/sour/Sumo/2025-08-11-19-32-20/./RL_controller.py:49: UserWarning: Call to deprecated function getAllProgramLogics, use getCompleteRedYellowGreenDefinition instead.
-  logic = traci.trafficlight.getCompleteRedYellowGreenDefinition(TRAFFIC_LIGHT_ID)
 Traceback (most recent call last):
-  File "/home/sour/Sumo/2025-08-11-19-32-20/./RL_controller.py", line 136, in <module>
+  File "/home/sour/Sumo/2025-08-11-19-32-20/./RL_controller.py", line 119, in <module>
     run_simulation()
-  File "/home/sour/Sumo/2025-08-11-19-32-20/./RL_controller.py", line 93, in run_simulation
-    while traci.simulation.getMinExpectedNumber() > 0:
-          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/sour/Sumo/2025-08-11-19-32-20/venv/lib/python3.12/site-packages/traci/_simulation.py", line 461, in getMinExpectedNumber
-    return self._getUniversal(tc.VAR_MIN_EXPECTED_VEHICLES)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/sour/Sumo/2025-08-11-19-32-20/venv/lib/python3.12/site-packages/traci/domain.py", line 152, in _getUniversal
-    return _parse(self._retValFunc, varID, self._getCmd(varID, objectID, format, *values))
-                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/sour/Sumo/2025-08-11-19-32-20/venv/lib/python3.12/site-packages/traci/domain.py", line 157, in _getCmd
-    r = self._connection._sendCmd(self._cmdGetID, varID, objID, format, *values)
-        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/sour/Sumo/2025-08-11-19-32-20/./RL_controller.py", line 91, in run_simulation
+    traci.simulationStep()
+  File "/home/sour/Sumo/2025-08-11-19-32-20/venv/lib/python3.12/site-packages/traci/main.py", line 200, in simulationStep
+    connection.check().simulationStep(step)
+  File "/home/sour/Sumo/2025-08-11-19-32-20/venv/lib/python3.12/site-packages/traci/connection.py", line 370, in simulationStep
+    result = self._sendCmd(tc.CMD_SIMSTEP, None, None, "D", step)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   File "/home/sour/Sumo/2025-08-11-19-32-20/venv/lib/python3.12/site-packages/traci/connection.py", line 232, in _sendCmd
     return self._sendExact()
            ^^^^^^^^^^^^^^^^^
-  File "/home/sour/Sumo/2025-08-11-19-32-20/venv/lib/python3.12/site-packages/traci/connection.py", line 126, in _sendExact
-    raise FatalTraCIError("Connection already closed.")
-traci.exceptions.FatalTraCIError: Connection already closed.
+  File "/home/sour/Sumo/2025-08-11-19-32-20/venv/lib/python3.12/site-packages/traci/connection.py", line 137, in _sendExact
+    raise FatalTraCIError("Connection closed by SUMO.")
+traci.exceptions.FatalTraCIError: Connection closed by SUMO.

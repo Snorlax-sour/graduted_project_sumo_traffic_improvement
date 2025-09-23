@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<!-- generated on 2025-09-23 19:13:47 by Eclipse SUMO sumo Version 1.24.0
+<!-- generated on 2025-09-23 20:47:18 by Eclipse SUMO GUI Version 1.24.0
 <sumoConfiguration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/sumoConfiguration.xsd">
 
     <input>
@@ -17,6 +17,7 @@
 
     <processing>
         <ignore-route-errors value="true"/>
+        <time-to-teleport value="-1"/>
         <tls.actuated.jam-threshold value="30"/>
     </processing>
 
@@ -32,7 +33,7 @@
     </report>
 
     <traci_server>
-        <remote-port value="46501"/>
+        <remote-port value="58433"/>
     </traci_server>
 
     <gui_only>
@@ -44,4 +45,7 @@
 -->
 
 <stops xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/stopinfo_file.xsd">
+    <stopinfo id="pt_bus_東海校園接駁車(平日):0.0" type="pt_bus" lane="367762378_0" pos="21.19" parking="0" started="390.00" ended="420.00" delay="0.00" busStop="3716494690" initialPersons="0" loadedPersons="0" unloadedPersons="0" initialContainers="0" loadedContainers="0" unloadedContainers="0" blockedDuration="0.00"/>
+    <stopinfo id="pt_bus_東海校園接駁車(平日):0.1" type="pt_bus" lane="367762378_0" pos="21.20" parking="0" started="990.00" ended="1020.00" delay="0.00" busStop="3716494690" initialPersons="0" loadedPersons="0" unloadedPersons="0" initialContainers="0" loadedContainers="0" unloadedContainers="0" blockedDuration="0.00"/>
+    <stopinfo id="pt_bus_東海校園接駁車(平日):0.2" type="pt_bus" lane="367762378_0" pos="21.18" parking="0" started="1590.00" ended="1620.00" delay="0.00" busStop="3716494690" initialPersons="0" loadedPersons="0" unloadedPersons="0" initialContainers="0" loadedContainers="0" unloadedContainers="0" blockedDuration="0.00"/>
 </stops>
