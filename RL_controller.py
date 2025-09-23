@@ -111,7 +111,8 @@ def run_simulation():
                 next_phase = (current_phase + 1) % num_phases
                 traci.trafficlight.setPhase(TRAFFIC_LIGHT_ID, next_phase)
             # III. 執行選擇的動作
-            # perform_action(action, current_phase) <--- 為啥刪除了
+            # perform_action(action, current_phase) <--- 為啥刪除了, 
+            # ai studio gemini說將內聯了，簡易功能融入裡面，希望可以後續分離
             
             # IV. 讓模擬前進一步，以觀察執行動作後產生的結果
             # 讓模擬前進一個時間步 (預設是 1 秒)
