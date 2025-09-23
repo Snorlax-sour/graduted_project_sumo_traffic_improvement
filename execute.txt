@@ -1,0 +1,66 @@
+***Starting server on port 46391 ***
+Loading net-file from './osm.net.xml.gz' ... done (220ms).
+Loading additional-files from './osm.poly.xml.gz' ... done (56ms).
+Loading additional-files from './osm_stops.add.xml' ... done (14ms).
+Loading additional-files from './output.add.xml' ... done (14ms).
+Loading route-files incrementally from './osm_pt.rou.xml'
+Loading route-files incrementally from './osm.bus.trips.xml'
+Loading route-files incrementally from './osm.motorcycle.trips.xml'
+Loading route-files incrementally from './osm.passenger.trips.xml'
+Loading route-files incrementally from './osm.truck.trips.xml'
+Loading done.
+Simulation version 1.24.0 started with time: 0.00.
+Simulation ended at time: 0.00.
+Reason: TraCI requested termination.
+Performance:
+ Duration: 0.24s
+ TraCI-Duration: 0.00s
+ Real time factor: 0
+ UPS: 0.000000
+Vehicles:
+ Inserted: 0 (Loaded: 8)
+ Running: 0
+ Waiting: 0
+Statistics (avg of 0):
+ RouteLength: 0.00
+ Speed: 0.00
+ Duration: 0.00
+ WaitingTime: 0.00
+ TimeLoss: 0.00
+ DepartDelay: 0.00
+***Starting server on port 46501 ***
+Loading net-file from './osm.net.xml.gz' ... done (236ms).
+Loading additional-files from './osm.poly.xml.gz' ... done (61ms).
+Loading additional-files from './osm_stops.add.xml' ... done (14ms).
+Loading additional-files from './output.add.xml' ... done (17ms).
+Loading route-files incrementally from './osm_pt.rou.xml'
+Loading route-files incrementally from './osm.bus.trips.xml'
+Loading route-files incrementally from './osm.motorcycle.trips.xml'
+Loading route-files incrementally from './osm.passenger.trips.xml'
+Loading route-files incrementally from './osm.truck.trips.xml'
+Loading done.
+Simulation version 1.24.0 started with time: 0.00.
+Simulation ended at time: 1.00.
+Reason: TraCI requested termination.
+Performance:
+ Duration: 0.26s
+ TraCI-Duration: 0.00s
+ Real time factor: 3.861
+ UPS: 11.583012
+Vehicles:
+ Inserted: 3 (Loaded: 8)
+ Running: 3
+ Waiting: 1
+Statistics (avg of 0):
+ RouteLength: 0.00
+ Speed: 0.00
+ Duration: 0.00
+ WaitingTime: 0.00
+ TimeLoss: 0.00
+ DepartDelay: 0.00
+DijkstraRouter answered 6 queries and explored 278.50 edges on average.
+DijkstraRouter spent 0.00s answering queries (0.50ms on average).
+ Retrying in 1 seconds
+成功獲取交通號誌 '1253678773' 的相位總數: 4
+ Retrying in 1 seconds
+目前模擬時間: 0 秒, 狀態: (0, 0, 0, 0), 動作: 1, 獎勵: -0.00
