@@ -1,120 +1,116 @@
 import traci
 import sys
 import os
-from RL_Agent import RLAgent
-import random
+from DQN_RL_Agent import DQNAgent # 直接 import class
 
-"""
-這是整合了所有修正的最終版本。
-它包含：
-1. 穩定的單次啟動與關閉流程。
-2. 引入'最小綠燈時間'來穩定Agent的決策。
-3. 使用'差異化獎勵'來提供更有效的學習信號。
-"""
+def get_sumo_home():
+    """找到 SUMO 的安装目录并設定環境"""
+    if 'SUMO_HOME' in os.environ:
+        tools = os.path.join(os.environ['SUMO_HOME'], 'tools')
+        sys.path.append(tools)
+        return True
+    else:
+        sys.exit("請確認 SUMO_HOME 環境變數已設定！")
 
-# --- 設定 SUMO 環境 ---
-if 'SUMO_HOME' in os.environ:
-    tools = os.path.join(os.environ['SUMO_HOME'], 'tools')
-    sys.path.append(tools)
-else:
-    sys.exit("please declare environment variable 'SUMO_HOME'")
-
-# --- 模擬設定 ---
-SUMO_BINARY = "sumo-gui"
-SUMOCFG_PATH = "./osm.sumocfg"
-SUMO_CMD = [SUMO_BINARY, "-c", SUMOCFG_PATH, "--quit-on-end", "--time-to-teleport", "-1"]
-
-# --- 全局輔助函式 ---
 def get_state(tls_id):
-    """獲取指定交通號誌的狀態（各車道排隊車輛數）"""
+    """獲取指定交通號誌的狀態"""
     lanes = traci.trafficlight.getControlledLanes(tls_id)
     unique_lanes = list(set(lanes))
     queue_lengths = [traci.lane.getLastStepHaltingNumber(lane) for lane in unique_lanes]
     return tuple(queue_lengths)
-
-def get_total_waiting_time(tls_id):
-    """獲取指定路口所有車道的總等待時間"""
+    
+def calculate_reward(tls_id):
+    """計算指定交通號誌的獎勵 (负等待时间)"""
     lanes = list(set(traci.trafficlight.getControlledLanes(tls_id)))
     total_waiting_time = sum(traci.lane.getWaitingTime(lane) for lane in lanes)
-    return total_waiting_time
+    return -total_waiting_time
 
-# --- 主程式 ---
-def run_simulation():
+def run_experiment():
     """主模擬迴圈"""
-
+    
+    # --- 1. 初始化設定 ---
+    SUMO_BINARY = "sumo" # 開發時用 sumo-gui, 訓練時用 sumo
+    SUMOCFG_PATH = "./osm.sumocfg"
+    SUMO_CMD = [SUMO_BINARY, "-c", SUMOCFG_PATH, "--quit-on-end", "--time-to-teleport", "-1"]
+    
     TRAFFIC_LIGHT_ID = "1253678773"
-    ACTION_SPACE = [0, 1]  # 0: 維持, 1: 切換
-    MIN_GREEN_TIME = 10    # 綠燈最少持續時間
-
+    ACTION_SPACE = [0, 1]
+    MIN_GREEN_TIME = 10
+    DECISION_INTERVAL = 5
+    
+    # --- 2. 啟動 SUMO 並獲取初始資訊 ---
     try:
-        # 1. 啟動 SUMO，這是整個程式唯一一次啟動
         traci.start(SUMO_CMD)
         
-        # --- 在連線建立後，獲取號誌資訊並初始化 Agent ---
         logics = traci.trafficlight.getAllProgramLogics(TRAFFIC_LIGHT_ID)
-        if logics:
-            num_phases = len(logics[0].phases)
-            print(f"成功獲取交通號誌 '{TRAFFIC_LIGHT_ID}' 的相位總數: {num_phases}")
-        else:
-            print(f"錯誤：找不到ID為'{TRAFFIC_LIGHT_ID}'的號誌邏輯，使用預設值4。")
-            num_phases = 4 
+        num_phases = len(logics[0].phases) if logics else 4
+        print(f"成功獲取交通號誌 '{TRAFFIC_LIGHT_ID}' 的相位總數: {num_phases}")
 
-        agent = RLAgent(action_space=ACTION_SPACE)
-
-        # --- 2. 模擬主迴圈 ---
-        step = 0
-        phase_timer = 0 # 用來計時當前相位已持續多久
+        lanes = traci.trafficlight.getControlledLanes(TRAFFIC_LIGHT_ID)
+        state_size = len(list(set(lanes)))
+        print(f"狀態維度 (State Size): {state_size}")
         
-        while step < 3000:
+    except traci.TraCIException as e:
+        print(f"啟動SUMO或獲取資訊時出錯: {e}")
+        traci.close()
+        return
+
+    # --- 3. 初始化 Agent ---
+    agent = DQNAgent(state_size=state_size, action_space=ACTION_SPACE)
+
+    # --- 4. 主模擬與學習迴圈 ---
+    step = 0
+    while step < 10000: # 為了快速測試，先跑500步
+        try:
             if traci.simulation.getMinExpectedNumber() <= 0:
                 print("所有車輛已離開模擬，提前結束。")
                 break
-
-            # 記錄「行動前」的狀態和等待時間
+                
             current_state = get_state(TRAFFIC_LIGHT_ID)
-            wait_time_before_action = get_total_waiting_time(TRAFFIC_LIGHT_ID)
+            wait_time_before_action = calculate_reward(TRAFFIC_LIGHT_ID) # 使用-waiting time
             current_phase = traci.trafficlight.getPhase(TRAFFIC_LIGHT_ID)
             
-            # 只有在綠燈相位(偶數位)且已達最小綠燈時間，才讓 Agent 決策
-            if current_phase % 2 == 0 and phase_timer >= MIN_GREEN_TIME:
+            action = 0
+            if current_phase % 2 == 0:
                 action = agent.choose_action(current_state)
+            
+            # --- 核心：根據動作，執行並等待固定時間 ---
+            if action == 1 and current_phase % 2 == 0:
+                next_phase = (current_phase + 1) % num_phases
+                traci.trafficlight.setPhase(TRAFFIC_LIGHT_ID, next_phase)
                 
-                if action == 1:
-                    # 切換到下一個相位並重置計時器
-                    next_phase = (current_phase + 1) % num_phases
-                    traci.trafficlight.setPhase(TRAFFIC_LIGHT_ID, next_phase)
-                    phase_timer = 0
+                # 等待黃燈時間
+                for _ in range(3): # 假設黃燈3秒
+                    traci.simulationStep()
+                    step += 1
             else:
-                action = 0 # 維持現狀
+                # 維持綠燈，等待決策間隔
+                for _ in range(DECISION_INTERVAL):
+                    traci.simulationStep()
+                    step += 1
             
-            # --- 讓模擬時間前進一步 ---
-            traci.simulationStep()
-            step += 1
-            phase_timer += 1
-            # --- 時間前進完畢 ---
-
-            # 獲取「行動後」的結果並計算獎勵
-            wait_time_after_action = get_total_waiting_time(TRAFFIC_LIGHT_ID)
-            reward = wait_time_before_action - wait_time_after_action
-            
+            # --- 學習步驟 ---
             next_state = get_state(TRAFFIC_LIGHT_ID)
+            # 使用「差异化」奖励
+            wait_time_after_action = calculate_reward(TRAFFIC_LIGHT_ID)
+            reward = wait_time_after_action - wait_time_before_action
+            
             agent.learn(current_state, action, reward, next_state)
 
-            if step % 10 == 0:
-                print(f"時間: {step}s | 獎勵: {reward:.2f} | Epsilon: {agent.exploration_rate:.3f}")
+            if step % 10 < 5: # 每10步打印一次資訊，避免洗版
+                # 告訴 Python：「執行完這句 print 之後，不要再把內容放進購物車裡等了，立刻、馬上把它送到超市出口（寫入檔案）！」
+                print(f"時間: {step}s | 獎勵: {reward:.2f} | Epsilon: {agent.exploration_rate:.3f}", flush=True)
 
-    except traci.TraCIException as e:
-        print(f"模擬中斷，錯誤: {e}")
+        except traci.TraCIException:
+            print("SUMO 連線中斷，提前結束迴圈。")
+            break
 
-    finally:
-        # --- 3. 結束模擬 ---
-        # 確保連線一定會被關閉
-        print("正在關閉模擬...")
-        traci.close()
-        sys.stdout.flush()
-
+    # --- 5. 結束模擬 ---
+    print("正在關閉模擬...")
+    traci.close()
 
 # --- 程式進入點 ---
 if __name__ == "__main__":
-    run_simulation()
-    print("模擬結束！")
+    get_sumo_home()
+    run_experiment()
+    print("程式執行完畢！")

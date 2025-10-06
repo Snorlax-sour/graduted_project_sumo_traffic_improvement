@@ -1,5 +1,5 @@
 import random # <--- 新增這個 import
-
+#  Q table
 class RLAgent:
     def __init__(self, action_space):
         # 初始化智能體
@@ -7,7 +7,7 @@ class RLAgent:
         self.learning_rate = 0.1         # 學習率 (alpha): 每次學習的幅度有多大
         self.discount_factor = 0.9       # 折扣因子 (gamma): 對未來的獎勵有多重視
         self.exploration_rate = 1.0      # 探索率 (epsilon): 一開始有 100% 的機率亂試
-        self.exploration_decay = 0.995   # 探索率衰減: 每次學習後，減少亂試的機率
+        self.exploration_decay = 0.999   # 探索率衰減: 每次學習後，減少亂試的機率
         self.min_exploration = 0.05      # 最小探索率: 確保它永遠有機會嘗試新東西
         # 提高最小探索率
 
