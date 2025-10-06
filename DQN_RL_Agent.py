@@ -1,9 +1,9 @@
 import random
-import numpy as np
+import numpy as np # pyright: ignore[reportMissingImports]
 from collections import deque
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense, Input
-from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.models import Sequential # pyright: ignore[reportMissingImports]
+from tensorflow.keras.layers import Dense, Input # pyright: ignore[reportMissingImports]
+from tensorflow.keras.optimizers import Adam # pyright: ignore[reportMissingImports]
 
 class DQNAgent:
     def __init__(self, state_size, action_space):
