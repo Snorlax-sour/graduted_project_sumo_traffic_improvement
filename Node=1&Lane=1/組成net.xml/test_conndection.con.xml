@@ -1,0 +1,21 @@
+<connections>
+    <!-- row -->
+    <connection from="3to4" to="4to1" fromLane="0" toLane="0" />
+    <connection from="3to4" to="4to5" fromLane="0" toLane="0" />
+    <connection from="3to4" to="4to7" fromLane="0" toLane="0" />
+
+    <connection from="5to4" to="4to1" fromLane="0" toLane="0" />
+    <connection from="5to4" to="4to3" fromLane="0" toLane="0" />
+    <connection from="5to4" to="4to7" fromLane="0" toLane="0" />
+
+
+
+    <!-- column -->
+    <connection from="1to4" to="4to3" fromLane="0" toLane="0" />
+    <connection from="1to4" to="4to7" fromLane="0" toLane="0" />
+    <connection from="1to4" to="4to5" fromLane="0" toLane="0" />
+
+    <connection from="7to4" to="4to3" fromLane="0" toLane="0" />
+    <connection from="7to4" to="4to1" fromLane="0" toLane="0" />
+    <connection from="7to4" to="4to5" fromLane="0" toLane="0" />
+</connections>

@@ -1,0 +1,18 @@
+<body>                                                    <!-- 選用 -->
+    <!-- 組成 net 所需檔案(.nod.xml | .edg.xml | .type.xml | .con.xml) -->
+    netconvert --node-files test_nodes.nod.xml --edge-files test_edge.edg.xml --type-files test_type.type.xml --connection-files test_conndection.con.xml --output test_net.net.xml
+    
+    netconvert --node-files test_nodes.nod.xml \
+               --edge-files test_edge.edg.xml \
+               --type-files test_type.type.xml \
+               --connection-files test_conndection.con.xml \
+               --output test_net.net.xml \
+
+    <!-- 組成 route 所需檔案(.net.xml) | 隨機生成 50 輛車 | 允許邊緣生成 -->
+    python randomTrips.py --net-file test_net.net.xml --route-file test_route.rou.xml --end 50 --allow-fringe
+
+    python randomTrips.py --net-file test_net.net.xml \
+                          --route-file test_route.rou.xml \
+                          --end 50 \
+                          --allow-fringe
+</body>

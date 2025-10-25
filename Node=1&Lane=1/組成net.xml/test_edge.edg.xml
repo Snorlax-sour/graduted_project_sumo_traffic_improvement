@@ -1,0 +1,17 @@
+<edges>
+    <!-- row -->
+
+    <edge from="n3" to="n4" id="3to4" type="1L100S"/>
+    <edge from="n4" to="n3" id="4to3" type="1L100S"/>
+
+    <edge from="n4" to="n5" id="4to5" type="1L100S"/>
+    <edge from="n5" to="n4" id="5to4" type="1L100S"/>
+
+    <!-- column -->
+
+    <edge from="n1" to="n4" id="1to4" type="1L100S"/>
+    <edge from="n4" to="n1" id="4to1" type="1L100S"/>
+
+    <edge from="n4" to="n7" id="4to7" type="1L100S"/>
+    <edge from="n7" to="n4" id="7to4" type="1L100S"/>
+</edges>

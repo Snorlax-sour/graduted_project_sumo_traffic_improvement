@@ -1,0 +1,14 @@
+<configuration>
+
+    <input>
+        <net-file value="test_net.net.xml" />
+        <route-files value="test_route.rou.xml" />
+    </input>
+    <time>
+        <begin value="0" />
+        <end value="1000" />
+    </time>
+    <output>
+        <tripinfo-output value="tripinfo.xml"/>
+    </output>
+</configuration>
