@@ -38,4 +38,23 @@
         <param key="name" value="東海校園接駁車(平日) 科技大樓－管院大樓 (去程)"/>
         <param key="completeness" value="0.14"/>
     </flow>
+    <vType id="motorcycle" 
+        
+       length="1.5" 
+       minGap="0.3" 
+       lcStrategic="1.5" 
+       lcKeepRight="0" 
+       maxSpeed="27.78" 
+       width="0.8"     
+       accel="4.0"
+       vClass="motorcycle"/>
+    <vType id="passenger" 
+       vClass="passenger" 
+       minGap="1"       
+       lcStrategic="0.8"   
+       lcKeepRight="0.1"
+       maxSpeed="33.33"
+       length="5.0"
+       width="1.8"
+       />
 </routes>

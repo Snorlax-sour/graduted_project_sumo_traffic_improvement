@@ -34,45 +34,46 @@ def get_total_delay(filename="tripinfo.xml"):
         total_waiting_time += timeLoss
     return total_waiting_time
 
-# GA 評估函數
-def evaluate(ind):
-    # 東西向綠燈時間, 南北向綠燈時間 = 個體[phase1, phase2]
-    phase1, phase2 = ind
+# context: GA.py 檔案中
 
-    # 如果有上一次的紀錄, 就刪除舊的紀錄
-    if os.path.exists("tripinfo.xml"):
-        os.remove("tripinfo.xml")
+def evaluate(individual):
+    # 載入當前 SUMO 環境
+    # 這裡的 os.environ 設置應放在 GA.py 的開頭，確保 traci 正常工作
+    # (如果 traci 已經能用，這行就不是必要的)
+    
+    # 啟動 SUMO
+    traci.start(sumoCmd, label=TRAFFIC_LIGHT_ID) # 使用 TRAFFIC_LIGHT_ID 避免衝突
 
-    # 開始模擬
-    traci.start(sumoCmd)
-
-    # 取得路口n4
-    tl_id = traci.trafficlight.getIDList()[0]
-
-    # 路口參數
+    # --- 這裡是你隊友原先的程式碼 ---
+    # 建立新的時相邏輯
     logic = Logic(
-        programID="ga-program",                     # 紅綠燈邏輯的名稱
-        type=0,                                     # 類型（0 = 固定邏輯）
-        currentPhaseIndex=0,                        # 初始相位 index（從哪一個 phase 開始）
-        phases=[                                    # 相位列表
-            Phase(phase1, "GGgrrrGGgrrr", 0, 0),
-            Phase(5, "yyyrrryyyrrr", 0, 0),
-            Phase(phase2, "rrrGGgrrrGGg", 0, 0),
-            Phase(5, "rrryyyrrryyy", 0, 0)
-        ]
+        programID="ga_prog",
+        phases=[
+            Phase(3, 'G' * 4 + 'y' * 4),    # 黃燈 3s
+            Phase(individual[0], 'G' * 4 + 'g' * 4), # Phase 0 (主幹道綠燈)
+            Phase(3, 'y' * 4 + 'G' * 4),    # 黃燈 3s
+            Phase(individual[1], 'g' * 4 + 'G' * 4), # Phase 2 (次幹道綠燈)
+        ],
+        type="static",
+        currentPhaseIndex=0
     )
-    traci.trafficlight.setProgramLogic(tl_id, logic)
-
-    # 跑 500 ms
-    for step in range(500):
+    
+    # 【關鍵修正】：將這個 GA 時相邏輯套用到您的真實路口 ID 上
+    # traci.trafficlight.setCompleteRedLight(TRAFFIC_LIGHT_ID, True) # 確保安全切換
+    traci.trafficlight.setProgram(TRAFFIC_LIGHT_ID, logic.programID) 
+    traci.trafficlight.setPhase(TRAFFIC_LIGHT_ID, 0)
+    
+    # 確保模擬運行足夠長的時間來評估這個固定時相
+    SIM_TIME = 3600 # 運行 1 小時，或隊友設定的時長
+    for step in range(SIM_TIME):
         traci.simulationStep()
 
-    # 結束模擬
-    traci.close()
-
-    # 呼叫自定義函數取得總等待時間
+    # 獲取總延遲（隊友的函數會讀取 tripinfo.xml）
     delay = get_total_delay("tripinfo.xml")
-    return (delay,) # tuple
+
+    traci.close()
+    return delay, # 必須回傳一個 tuple
+
 
 # --- GA 參數設定 ---
 POP_SIZE = 100          # 每代要訓練幾組個體（幾組紅綠燈設定）
