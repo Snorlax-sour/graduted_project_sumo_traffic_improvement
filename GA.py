@@ -21,23 +21,34 @@ import csv
 import datetime
 # 與RL_controller同一個路口設定
 TRAFFIC_LIGHT_ID="1253678773"
+
+# --- 【新增：從命令列讀取唯一 ID】---
+GA_INSTANCE_ID = "default_ga"
+if len(sys.argv) > 1:
+    GA_INSTANCE_ID = sys.argv[1]
+print(f"啟動 GA 實例 ID: {GA_INSTANCE_ID}")
+
 # 存入當下的時間
 now = datetime.datetime.now()
 timestamp = now.strftime("%Y-%m-%d_%H-%M-%S") # <-- 讓這行生效
-filename = rf"./GA_{timestamp}.csv" # <-- 導向一個帶時間戳的專屬檔案
+filename = rf"./GA_{GA_INSTANCE_ID}__{timestamp}.csv" # <-- 導向一個帶時間戳的專屬檔案
 # filename = rf"./GA_best_result.csv" # <-- 舊的這行註釋掉或移除
+
+
 
 # 寫入指定的csv檔案
 csv_file = open(file=filename, mode="w", newline="", encoding="utf-8")
 csv_writer = csv.writer(csv_file)
 csv_writer.writerow(["generation", "phase1", "phase2", "delay"])
+# --- 【修正：讓 tripinfo.xml 帶有 ID】---
+TRIPINFO_OUTPUT_PATH = f"tripinfo_{GA_INSTANCE_ID}.xml"
 
 # 啟動 SUMO 模擬（用 sumo-gui 可視化，或 sumo 為命令列）
 sumoCmd = [
     "sumo", 
     "-c", "osm.sumocfg",
     "--time-to-teleport", "-1", # 避免車輛瞬移
-    "--tripinfo-output", "tripinfo.xml" # 確保輸出 tripinfo.xml
+    "--tripinfo-output", TRIPINFO_OUTPUT_PATH # 確保輸出 tripinfo.xml
 ]
 
 # 取得總等待時間
@@ -87,7 +98,7 @@ def evaluate(individual):
         traci.trafficlight.setPhase(TRAFFIC_LIGHT_ID, 0)
         
         # 確保模擬運行足夠長的時間
-        MAX_SIM_STEPS = 3600
+        MAX_SIM_STEPS = 600
         step = 0
         while step < MAX_SIM_STEPS and traci.simulation.getMinExpectedNumber() > 0:
             traci.simulationStep()
@@ -127,8 +138,8 @@ def evaluate(individual):
              pass
 
 # --- GA 參數設定 ---
-POP_SIZE = 100          # 每代要訓練幾組個體（幾組紅綠燈設定）
-GEN_NUM = 100           # 總共進化幾代
+POP_SIZE = 30          # 每代要訓練幾組個體（幾組紅綠燈設定）
+GEN_NUM = 1           # 總共進化幾代
 TIME_MIN = 5            # 綠燈最短秒數
 TIME_MAX = 100          # 綠燈最長秒數
 
@@ -154,11 +165,26 @@ toolbox.register("select", tools.selTournament, tournsize=3)
 # --- 執行 GA 訓練 ---
 pop = toolbox.population(n=POP_SIZE)
 fitnesses = list(map(toolbox.evaluate, pop))
-for ind, fit in zip(pop, fitnesses):
-    ind.fitness.values = fit
+# for ind, fit in zip(pop, fitnesses):
+#     ind.fitness.values = fit
 first_values = 0
 
-print("\n🔁 開始進行 GA 訓練...\n")
+print("\n🔁 開始進行 GA 訓練...\n",flush=True)
+print(f"\n🔁 開始評估初始群體 (Generation 0)，共 {POP_SIZE} 個體...\n" ,flush=True)
+
+# 【關鍵修正：使用迴圈評估初始群體並即時輸出】
+fitnesses = []
+for i, individual in enumerate(pop):
+    fit = toolbox.evaluate(individual)
+    fitnesses.append(fit)
+    
+    # 這裡會即時印出進度！
+    print(f"✅ Gen 0 完成個體 {i + 1}/{POP_SIZE} 評估. 延遲 (Penalty): {fit[0]:.2f} 秒。",flush=True)
+    
+# 將適應度賦值給個體
+for ind, fit in zip(pop, fitnesses):
+    ind.fitness.values = fit
+
 
 for gen in range(GEN_NUM):
     offspring = toolbox.select(pop, len(pop))
@@ -178,7 +204,13 @@ for gen in range(GEN_NUM):
 
     # 計算新的適應度
     invalid_ind = [ind for ind in offspring if not ind.fitness.valid]
-    fitnesses = list(map(toolbox.evaluate, invalid_ind))
+    # fitnesses = list(map(toolbox.evaluate, invalid_ind))
+    fitnesses = []
+    print(f"🔄 第 {gen+1} 代：開始評估 {len(invalid_ind)} 個新個體...", flush=True)
+    for i, ind in enumerate(invalid_ind):
+        fit = toolbox.evaluate(ind)
+        fitnesses.append(fit)
+        print(f"   -> 完成 {i+1}/{len(invalid_ind)} 個體評估. 延遲: {fit[0]:.2f} 秒。", flush=True)
     for ind, fit in zip(invalid_ind, fitnesses):
         ind.fitness.values = fit
 
@@ -189,7 +221,7 @@ for gen in range(GEN_NUM):
     if gen == 0:
         first_values = best.fitness.values[0]
 
-    print(f"第 {gen+1} 代最佳紅綠燈組合：{best}, 等待時間：{best.fitness.values[0]:.2f} 秒")
+    print(f"第 {gen+1} 代最佳紅綠燈組合：{best}, 等待時間：{best.fitness.values[0]:.2f} 秒",flush=True)
 
     # 將 ["generation", "phase1", "phase2", "delay"] 存入csv
     csv_writer.writerow([gen + 1, best[0], best[1], f"{best.fitness.values[0]:.2f}"])

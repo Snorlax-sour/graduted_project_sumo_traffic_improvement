@@ -48,7 +48,7 @@ def plot_log_data(log_file='execute.txt'):
             
             # 确保长度一致才绘图
             if len(moving_avg_steps) == len(moving_avg_rewards):
-                ax1.plot(moving_avg_steps, moving_avg_rewards, label=f'{window_size}步移動平均獎勵', color='red', linewidth=2)
+                ax1.plot(moving_avg_steps, moving_avg_rewards, label=f'{window_size}-Step Moving Average Reward', color='red', linewidth=2)
             else:
                  print("警告: 移動平均計算後的數據長度不匹配，跳過繪製趨勢線。")
         if len(moving_avg_steps) == len(moving_avg_rewards):
