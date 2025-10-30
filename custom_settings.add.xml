@@ -2,14 +2,17 @@
 <vType id="motorcycle" 
         
        length="1.5" 
-       minGap="0.5" 
-       lcStrategic="1.5" 
+       minGap="0.8" 
+       lcStrategic="0.5" 
        lcKeepRight="0" 
        maxSpeed="27.78" 
-       width="0.8"     
+       width="0.5"     
+       lcCooperative="0.2"
        accel="4.0"
+       lcSpeedGain="2.0"
        speedFactor="1.5"
-       vClass="motorcycle"/>
+       lcPushy="2.0"
+       vClass="motorcycle" />
     <vType id="passenger" 
        vClass="passenger" 
        minGap="1"       

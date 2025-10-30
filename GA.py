@@ -118,8 +118,8 @@ def evaluate(individual):
     except traci.TraCIException as e:
         print(f"🚨 嚴重警告：SUMO/TraCI 連線中斷 (錯誤: {e}). 對當前個體返回極大懲罰。")
         # 嘗試關閉連線，避免佔用埠口
-        if traci.is_connected():
-            traci.close()
+        # if traci.is_connected():
+        #     traci.close()
             
         return (1e9,) # 返回懲罰值
     except Exception as e_general:

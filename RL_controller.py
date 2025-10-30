@@ -7,7 +7,10 @@ from plyer import notification # <--- 新增
 
 GA_RESULT_PATH = "./GA_best_result.csv"
 last_total_waiting_time = 0.0
-
+# --- 新增全域變數 ---
+# context: 在 RL_controller.py 檔案的頂部新增/修改此行
+last_total_queue_length = 0.0
+last_total_cumulative_waiting_time = 0.0
 def read_ga_optimal_phases(csv_filepath):
     """從 GA 輸出的 CSV 檔案中讀取最後一行的 phase1 和 phase2 數值"""
     
@@ -89,66 +92,91 @@ def get_state(tls_id):
     
 # context: 在程式的全局區域
 # --- 修正後的 calculate_reward 函數 ---
+# context: 在 RL_controller.py 檔案的頂部新增/修改此行
+last_total_waiting_time = 0.0 # 重新啟用這個變數，並用來追蹤累積等待時間
+
 def calculate_reward(tls_id):
     """
-    計算即時獎勵：負的總等待時間。
-    
-    traci.lane.getWaitingTime(lane) 會返回在最近的模擬步驟中，
-    車輛在該車道上等待的累積時間（單位：秒）。
-    這是一個即時懲罰，非常適合 RL 訓練。
+    計算即時獎勵：總累積等待時間的變化量 (Delta Delay)。
+    使用 traci.vehicle.getWaitingTime 來實現截圖中的目標。
     """
     try:
-        # 1. 獲取所有受該路口控制的車道
         lanes = traci.trafficlight.getControlledLanes(tls_id)
-        # --- 【新增：碰撞懲罰偵測】---
-    
-    # 1.1 偵測全局正在傳送 (Teleporting) 的車輛
-        teleporting_vehicles = traci.simulation.getStartingTeleportIDList()
+        unique_lanes = list(set(lanes))
         
-        collision_detected_locally = False
-        # 1.2 檢查傳送的車輛是否在你的「受控車道」範圍內
-        for veh_id in teleporting_vehicles:
-            try:
-                current_lane = traci.vehicle.getLaneID(veh_id)
-                # 如果車輛正在傳送，並且它位於你的控制範圍內
-                if current_lane in lanes:
-                    collision_detected_locally = True
-                    break
-            except traci.exceptions.TraCIException:
-                # 如果車輛已經消失 (例如模擬結束或已經被傳送完成)
-                continue
-        # 1.3 施加懲罰
-        if collision_detected_locally:
-            # 如果發生碰撞，則施加一個巨大的負面懲罰
-            # **注意：這個懲罰會完全取代原本的等待時間獎勵**
-            reward = -1000.0  
-            total_waiting_time = traci.trafficlight.getWaitingTime(tls_id) # 獲取當前等待時間作為統計值
-            print(f"🚨🚨 重大警告：在路口 {tls_id} 偵測到局部碰撞懲罰 (-1000.0)！", file=sys.stderr)
-            return reward, total_waiting_time
-        else:
-            # 2. 計算所有車道的總等待時間
-            total_waiting_time = 0.0
-            # 遍歷所有受控車道，計算它們在當前步驟中的總等待時間
-            # 注意：這個值通常在每個 time step 後會被重置，
-            # 或者指在當前 time step 期間，車輛等待的累積時間。
-            # (在 SUMO 中，它是指當前在該車道上等待的車輛的總累積等待時間，是一個「狀態」指標)
-            for lane in lanes:
-                # getWaitingTime: 返回在當前 time step 期間，車輛在車道上等待的累積時間。
-                # getAccumulatedWaitingTime: 返回自上次重置以來，總累積等待時間。
-                # 為了即時獎勵，使用 getWaitingTime 較為合適。
-                total_waiting_time += traci.lane.getWaitingTime(lane)
-                
-            # 3. 定義獎勵：最小化等待時間 (負的等待時間)
-            reward = -total_waiting_time
+        current_total_waiting_time = 0.0
+        
+        # 1. 遍歷所有受控車道
+        for lane in unique_lanes:
+            # 獲取該車道上所有車輛 ID
+            vehicle_ids = traci.lane.getLastStepVehicleIDs(lane)
             
-            # 第二個回傳值 (例如用於統計)
-            return reward, total_waiting_time
+            # 2. 遍歷車道上的所有車輛
+            for veh_id in vehicle_ids:
+                # 【關鍵嘗試】：使用 traci.vehicle 級別的 API 來獲取單車等待時間
+                # 這個 API 應該是相當穩定的
+                current_total_waiting_time += traci.vehicle.getWaitingTime(veh_id)
+        
+        # 3. 計算 Delta Reward
+        global last_total_waiting_time
+        
+        # Delta = (舊的累積等待時間 - 新的累積等待時間)
+        # 如果 Delta > 0，表示等待時間減少，獎勵為正。
+        delta_delay = last_total_waiting_time - current_total_waiting_time
+        
+        # 4. 更新全域變數
+        last_total_waiting_time = current_total_waiting_time
+        
+        # 5. 定義獎勵：最大化等待時間的減少
+        reward = delta_delay * 1.0 
+        
+        # 第二個返回值 'current_total_waiting_time' 兼容主迴圈
+        return reward, current_total_waiting_time
             
-    except traci.TraCIException as e:
-        # 如果路口 ID 錯誤或 TraCI 連線中斷
-        # print(f"計算獎勵時發生 TraCI 錯誤: {e}", file=sys.stderr)
-        return 0.0, 0.0 # 回傳 0 獎勵以避免崩潰
-    
+    except traci.TraCIException:
+        # SUMO 連線中斷
+        return 0.0, 0.0 
+    except AttributeError as e:
+        # 捕獲 'LaneDomain' 或 'VehicleDomain' 相關的 AttributeError
+        print(f"計算獎勵時發生致命 AttributeError: {e}. 請檢查 traci.vehicle.getWaitingTime 是否存在。", file=sys.stderr)
+        # 如果這個方法失敗，就回到我們之前最魯棒的「排隊長度變化量」邏輯
+        return calculate_reward_queue_fallback(tls_id)
+    except Exception as e_general:
+        # 捕獲其他錯誤
+        return 0.0, 0.0
+
+# --- 備用函數：如果 vehicle.getWaitingTime 失敗，則回退到排隊長度 ---
+# 這是確保程式不會因為 API 不相容而崩潰的保護層
+def calculate_reward_queue_fallback(tls_id):
+    """
+    備用函數：如果基於車輛等待時間的計算失敗，則回退到排隊長度變化量。
+    （使用你上次修正後的 Delta Queue 邏輯）
+    """
+    print("使用calculate_reward_queue_fallback",flush=True)
+    try:
+        lanes = traci.trafficlight.getControlledLanes(tls_id)
+        unique_lanes = list(set(lanes))
+        
+        current_total_queue_length = 0.0
+        for lane in unique_lanes:
+            current_total_queue_length += traci.lane.getLastStepHaltingNumber(lane)
+        
+        # 注意：為了避免依賴另一個全域變數，這裡暫時使用 last_total_waiting_time 作為排隊長度的追蹤器。
+        # ⚠️ 這裡是犧牲了變數名稱的語義，換取程式的魯棒性。
+        global last_total_waiting_time
+        delta_queue = last_total_waiting_time - current_total_queue_length
+        last_total_waiting_time = current_total_queue_length
+        
+        # 使用 Delta Queue 作為獎勵
+        reward = delta_queue * 1.0 
+        
+        # 返回 排隊長度 (Queue Length)
+        return reward, current_total_queue_length
+            
+    except traci.TraCIException:
+        return 0.0, 0.0 
+    except Exception as e_general:
+        return 0.0, 0.0
 
 def run_experiment():
     """主模擬迴圈"""
@@ -338,7 +366,8 @@ def main():
     cumulative_reward = 0.0
     logics = traci.trafficlight.getAllProgramLogics(TRAFFIC_LIGHT_ID)
     num_phases = len(logics[0].phases) if logics else 4
-
+    # 【關鍵修正 1】：新增時間追蹤變數
+    time_since_last_change = 0
     # 【修正】: 動態獲取 state_size 並建立模型
     lanes = traci.trafficlight.getControlledLanes(TRAFFIC_LIGHT_ID)
     real_state_size = len(list(set(lanes))) + 2
@@ -358,11 +387,10 @@ def main():
             # --- 狀態獲取與動作選擇 ---
             current_state = get_state(TRAFFIC_LIGHT_ID)
             current_phase = traci.trafficlight.getPhase(TRAFFIC_LIGHT_ID)
-            time_in_phase = traci.trafficlight.getPhaseDuration(TRAFFIC_LIGHT_ID) - (traci.trafficlight.getNextSwitch(TRAFFIC_LIGHT_ID) - traci.simulation.getTime())
 
             # 使用訓練/測試模式下的 Epsilon 選擇動作
             action = 0 # 預設維持
-            if current_phase % 2 == 0 and time_in_phase >= MIN_GREEN_TIME:
+            if current_phase % 2 == 0 and time_since_last_change >= MIN_GREEN_TIME:
                 action = agent.choose_action(current_state)
 
             # --- 執行動作 ---
@@ -373,15 +401,19 @@ def main():
                     if traci.simulation.getMinExpectedNumber() <= 0: break
                     traci.simulationStep()
                     step += 1
+
+                    # 【關鍵修正 3】：切換相位後，重置計時器
+                time_since_last_change = 0
             else: # 維持相位
                 for _ in range(DECISION_INTERVAL):
                     if traci.simulation.getMinExpectedNumber() <= 0: break
                     traci.simulationStep()
                     step += 1
-            
+            # 【關鍵修正 4】：維持相位後，更新計時器
+            time_since_last_change += DECISION_INTERVAL
             # --- 學習步驟 (僅限訓練模式) ---
             next_state = get_state(TRAFFIC_LIGHT_ID)
-            reward, current_total_waiting_time = calculate_reward(TRAFFIC_LIGHT_ID)
+            reward, current_total_queue_length = calculate_reward(TRAFFIC_LIGHT_ID)
             
             if is_train_mode:
                 agent.learn(current_state, action, reward, next_state)
@@ -390,13 +422,14 @@ def main():
 
             # --- 紀錄與輸出 ---
             if step > 0:
-                # 【修正點 3】: 新增綠燈時間到輸出字串中
-                time_info = f" | 綠燈時間: {time_in_phase:.1f}s"
-                # 根據模式決定輸出內容
+                # 使用正確的 time_since_last_change 進行輸出
+                time_info = f" | 綠燈時間: {time_since_last_change:.1f}s"
+                
                 if is_train_mode:
                     status_line = f"時間: {step}s{time_info} | 獎勵: {reward:.2f} | Epsilon: {agent.exploration_rate:.3f}"
                 else:
-                    status_line = f"時間: {step}s{time_info} | 瞬間獎勵: {reward:.2f} | 總等待: {current_total_waiting_time:.2f}"
+                    # 測試模式下的 '總等待' 實際上是排隊總數 (current_total_queue_length)
+                    status_line = f"時間: {step}s{time_info} | 瞬間獎勵: {reward:.2f} | 排隊總數: {current_total_queue_length:.2f}"
                 
                 print(status_line, flush=True)
 
