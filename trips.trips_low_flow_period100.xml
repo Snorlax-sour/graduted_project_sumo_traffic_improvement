@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!-- generated on 2025-10-31 00:05:13.220874 by randomTrips.py UNKNOWN
+<configuration>
+    <net-file value="./osm.net.xml"/>
+    <output-trip-file value="./trips.trips_low_flow_period100.xml"/>
+    <end value="500.0"/>
+    <period value="100.0"/>
+</configuration>
+-->
+
+<routes xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/routes_file.xsd">
+    <trip id="0" depart="0.00" from="341456542" to="-109505207#4"/>
+    <trip id="1" depart="100.00" from="-368104091#4" to="-367762382#3"/>
+    <trip id="2" depart="200.00" from="368096545#1" to="364177895#1"/>
+    <trip id="3" depart="300.00" from="615037319#0" to="-227100507#1"/>
+    <trip id="4" depart="400.00" from="-795671604#0" to="-109505208#2"/>
+</routes>

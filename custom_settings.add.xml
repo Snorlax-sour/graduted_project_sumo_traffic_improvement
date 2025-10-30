@@ -1,27 +1,25 @@
-<additional>
-<vType id="motorcycle" 
-        
-       length="1.5" 
-       minGap="0.8" 
-       lcStrategic="0.5" 
-       lcKeepRight="0" 
-       maxSpeed="27.78" 
-       width="0.5"     
-       lcCooperative="0.2"
-       accel="4.0"
-       lcSpeedGain="2.0"
-       speedFactor="1.5"
-       lcPushy="2.0"
-       vClass="motorcycle" />
-    <vType id="passenger" 
-       vClass="passenger" 
-       minGap="1"       
-       lcStrategic="0.8"   
-       lcKeepRight="0.1"
-       maxSpeed="33.33"
-       speedFactor="1.2"
-       length="5.0"
-       width="1.8"
-       />
+<?xml version="1.0" encoding="UTF-8"?>
 
-       </additional>
+<!-- generated on 2025-10-31 02:08:38 by Eclipse SUMO netedit Version 1.24.0
+-->
+
+<routes xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/routes_file.xsd">
+    <!-- VTypes# 機車可以容忍較小的橫向間隙
+       minGapLat="0.05" -->
+    <!-- # 【新增 latAlignment 參數在這裡！】
+       latAlignment="right" -->
+    <vType id="motorcycle" length="1.50" minGap="0.30" maxSpeed="27.78" 
+       minGapLat="0.05" speedFactor="normc(1.50,0.10,0.20,2.00)" vClass="motorcycle" width="0.80" lcStrategic="5" latAlignment="compact"  lcCooperative="0.2" lcSpeedGain="2.0" lcKeepRight="0" lcPushy="2.0" accel="4.0"/>
+    <vType id="passenger" length="5.00" latAlignment="0.7"  minGap="1.00" maxSpeed="33.33" speedFactor="normc(1.20,0.10,0.20,2.00)" vClass="passenger" width="1.80" lcStrategic="3" lcKeepRight="0.1"/>
+    <vType id="truck" vClass="truck" length="10.00" width="2.50" minGap="2.00" maxSpeed="20.00" 
+       lcStrategic="1.0" lcKeepRight="1.0" 
+       
+       
+       latAlignment="0.8"
+       
+       />
+       <!-- # 卡車通常換道意願較低，但 lcKeepRight 可以設高 -->
+       
+       <!-- # 設定卡車在車道內靠右對齊 (right) -->
+    <!-- Vehicles, persons and containers (sorted by depart) -->
+</routes>

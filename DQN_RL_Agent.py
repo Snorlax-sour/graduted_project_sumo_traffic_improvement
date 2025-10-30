@@ -4,7 +4,11 @@ from collections import deque
 from tensorflow.keras.models import Sequential, load_model # pyright: ignore[reportMissingImports]
 from tensorflow.keras.layers import Dense, Input # pyright: ignore[reportMissingImports]
 from tensorflow.keras.optimizers import Adam # pyright: ignore[reportMissingImports]
-from tensorflow.keras.metrics import MeanSquaredError
+from tensorflow.keras.metrics import MeanSquaredError # pyright: ignore[reportMissingImports]
+import tensorflow as tf # pyright: ignore[reportMissingImports]
+# 為了穩定性，我們在這裡保留急切執行 (Eager Execution) 的設定
+tf.config.run_functions_eagerly(True) 
+tf.data.experimental.enable_debug_mode() # 這個可以移除，不影響模型訓練
  # <--- 【新增或確認】
 import os # 新增：用於檢查檔案是否存在
 
@@ -14,15 +18,15 @@ class DQNAgent:
         self.state_size = state_size
         self.action_space = action_space
         self.action_size = len(action_space)
-        self.memory = deque(maxlen=2000)
+        self.memory = deque(maxlen=20000)
 
         # 超參數 - 命名已統一
         self.discount_factor = 0.99
         self.exploration_rate = 1.0
         self.min_exploration = 0.01
-        self.exploration_decay = 0.999
+        self.exploration_decay = 0.9995
         self.learning_rate = 0.0001
-        self.update_target_freq = 20 # 讓目標網路更新的頻率稍微降低
+        self.update_target_freq = 100 # 讓目標網路更新的頻率稍微降低
         self.train_counter = 0
 
         # --- 檔案名稱設定 (使用 ID 隔離) ---
@@ -57,8 +61,8 @@ class DQNAgent:
         # Keras 推薦的新寫法，避免 UserWarning
         model = Sequential([
             Input(shape=(self.state_size,)),
-            Dense(24, activation='relu'),
-            Dense(24, activation='relu'),
+            Dense(64, activation='relu'),
+            Dense(64, activation='relu'),
             Dense(self.action_size, activation='linear')
         ])
         model.compile(loss='mse', optimizer=Adam(learning_rate=self.learning_rate), metrics=['mse'])
@@ -168,8 +172,8 @@ class DQNAgent:
     def learn(self, state, action, reward, next_state):
         self.remember(state, action, reward, next_state, False)
         # 在記憶庫足夠大時才開始學習
-        if len(self.memory) > 32: 
-            self.replay(batch_size=32)
+        if len(self.memory) > 64: 
+            self.replay(batch_size=64)
 
     # --- 【修正點 2：新增儲存模型的方法】---
     def save_model(self, filename="model_weights.h5"):

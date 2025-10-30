@@ -1,44 +1,28 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<!-- generated on 2025-08-11 19:32:33.547545 by osmWebWizard.py UNKNOWN
-<configuration>
-    <net-file value="/home/sour/Sumo/2025-08-11-19-32-20/osm.net.xml.gz"/>
-    <ptlines-file value="/home/sour/Sumo/2025-08-11-19-32-20/osm_ptlines.xml"/>
-    <ptstops-file value="/home/sour/Sumo/2025-08-11-19-32-20/osm_stops.add.xml"/>
-    <output-file value="/home/sour/Sumo/2025-08-11-19-32-20/osm_pt.rou.xml"/>
-    <stopinfos-file value="/home/sour/Sumo/2025-08-11-19-32-20/stopinfos.xml"/>
-    <routes-file value="/home/sour/Sumo/2025-08-11-19-32-20/vehroutes.xml"/>
-    <trips-file value="/home/sour/Sumo/2025-08-11-19-32-20/trips.trips.xml"/>
-    <min-stops value="0"/>
-    <extend-to-fringe value="True"/>
-    <random-begin value="True"/>
-    <seed value="42"/>
-    <ignore-errors value="True"/>
-    <vtype-prefix value="pt_"/>
-    <verbose value="True"/>
-</configuration>
+<!-- generated on 2025-10-31 02:08:38 by Eclipse SUMO netedit Version 1.24.0
 -->
 
 <routes xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/routes_file.xsd">
+    <!-- VTypes -->
+    <vType id="pt_aerialway" length="2.50" vClass="cable_car" width="2.00" personCapacity="4"/>
     <vType id="pt_bus" vClass="bus"/>
-    <vType id="pt_tram" vClass="tram"/>
-    <vType id="pt_train" vClass="rail"/>
-    <vType id="pt_subway" vClass="subway"/>
-    <vType id="pt_light_rail" vClass="rail_urban"/>
-    <vType id="pt_monorail" vClass="rail_urban"/>
-    <vType id="pt_trolleybus" vClass="bus"/>
-    <vType id="pt_minibus" vClass="bus"/>
-    <vType id="pt_share_taxi" vClass="taxi"/>
-    <vType id="pt_aerialway" vClass="cable_car" length="2.5" width="2" personCapacity="4"/>
     <vType id="pt_ferry" vClass="ship"/>
-    <route id="pt_bus_東海校園接駁車(平日):0" edges="367762378" >
-        <stop busStop="3716494690" duration="20" until="37.0"/> <!-- 女生宿舍 -->
+    <vType id="pt_light_rail" vClass="rail_urban"/>
+    <vType id="pt_minibus" vClass="bus"/>
+    <vType id="pt_monorail" vClass="rail_urban"/>
+    <vType id="pt_share_taxi" vClass="taxi"/>
+    <vType id="pt_subway" vClass="subway"/>
+    <vType id="pt_train" vClass="rail"/>
+    <vType id="pt_tram" vClass="tram"/>
+    <vType id="pt_trolleybus" vClass="bus"/>
+    <!-- Routes -->
+    <route id="pt_bus_東海校園接駁車(平日):0" edges="367762378">
+        <stop busStop="3716494690" duration="20.00" until="37.00"/>
     </route>
-    <flow id="pt_bus_東海校園接駁車(平日):0" type="pt_bus" route="pt_bus_東海校園接駁車(平日):0" begin="383.0" end="3983.0" period="600" line="東海校園接駁車(平日):0" >
-        <param key="name" value="東海校園接駁車(平日) 科技大樓－管院大樓 (去程)"/>
+    <!-- Vehicles, persons and containers (sorted by depart) -->
+    <flow id="pt_bus_東海校園接駁車(平日):0" type="pt_bus" begin="383.00" line="東海校園接駁車(平日):0" route="pt_bus_東海校園接駁車(平日):0" end="3983.00" period="600.00">
         <param key="completeness" value="0.14"/>
+        <param key="name" value="東海校園接駁車(平日) 科技大樓－管院大樓 (去程)"/>
     </flow>
-    
-       
 </routes>
-

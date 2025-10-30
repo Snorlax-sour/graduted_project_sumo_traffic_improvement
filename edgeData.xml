@@ -1,21 +1,22 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<!-- generated on 2025-10-30 21:55:33 by Eclipse SUMO sumo Version 1.24.0
+<!-- generated on 2025-10-31 03:57:39 by Eclipse SUMO sumo Version 1.24.0
 <sumoConfiguration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/sumoConfiguration.xsd">
 
     <input>
         <net-file value="osm.net.xml.gz"/>
-        <route-files value="osm_pt.rou.xml,osm.bus.trips.xml,osm.motorcycle.trips.xml,osm.passenger.trips.xml,osm.truck.trips.xml"/>
-        <additional-files value="osm.poly.xml.gz,osm_stops.add.xml,output.add.xml,custom_settings.add.xml"/>
+        <route-files value="custom_settings.add.xml,osm_pt.rou.xml,osm.bus.trips.xml,osm.motorcycle.trips.xml,osm.passenger.trips.xml,osm.truck.trips.xml"/>
+        <additional-files value="osm.poly.xml.gz,osm_stops.add.xml,output.add.xml"/>
     </input>
 
     <output>
-        <tripinfo-output value="tripinfo_default_ga.xml"/>
+        <tripinfo-output value="tripinfo.xml"/>
         <stop-output value="stopinfos.xml"/>
         <statistic-output value="stats.xml"/>
     </output>
 
     <processing>
+        <lateral-resolution value="0.05"/>
         <ignore-route-errors value="true"/>
         <time-to-teleport value="-1"/>
         <tls.actuated.jam-threshold value="30"/>
@@ -33,8 +34,12 @@
     </report>
 
     <traci_server>
-        <remote-port value="48423"/>
+        <remote-port value="36049"/>
     </traci_server>
+
+    <random_number>
+        <seed value="42"/>
+    </random_number>
 
     <gui_only>
         <gui-settings-file value="osm.view.xml"/>

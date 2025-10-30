@@ -305,6 +305,173 @@ def parse_arguments():
     return mode, instance_id
 
 
+# def main():
+#     mode, instance_id = parse_arguments()
+#     is_train_mode = (mode == 'train')
+
+#     # 參數設定
+#     TRAFFIC_LIGHT_ID = "1253678773"
+#     SUMO_CONFIG_FILE = "osm.sumocfg"
+#     MAX_SIMULATION_STEPS = 100000 # 模擬總步數
+#     DECISION_INTERVAL = 5 # 每隔 5 步進行一次決策
+#     MIN_GREEN_TIME = 10 # 最小綠燈時間
+#     ACTION_SPACE = [0, 1]  # 0: Maintain, 1: Change Phase
+    
+#     # --- 2. 初始化 DQN 代理，使用解析出的 instance_id ---
+#     print(f"使用的 RL 實例 ID (instance_id): {instance_id}")
+#     agent = DQNAgent(state_size=6, action_space=ACTION_SPACE, instance_id=instance_id) # state_size 暫時為 0
+
+
+#     if is_train_mode:
+#         print("💡 模式：DQN 訓練模式 (Train Mode)。")
+#         # 載入 GA 基線數據 (訓練用)
+#         read_ga_optimal_phases(GA_RESULT_PATH)
+#         # 訓練模式會繼續 Epsilon 衰減 (可以選擇載入上次進度)
+#         if agent.load_model():
+#             print("✅ 找到上次訓練模型，將繼續訓練。")
+#         else:
+#             print("⚠️ 未找到模型檔案，將從頭開始訓練。")
+            
+#     else: # 測試模式
+#         print("💡 模式：DQN 測試模式 (Test Mode)。")
+#         # --- 測試模式核心邏輯 ---
+#         if not agent.load_model():
+#             print(f"\n❌ 警告：測試模式下未能找到已訓練的模型檔案 (ID: {instance_id})，請先執行訓練。")
+#             sys.exit(1) # 測試模式下找不到模型就退出
+            
+#         agent.exploration_rate = 0.0 # 鎖定探索率為 0，只執行利用(Exploitation)
+#         print(f"✅ 模型載入成功。探索率 Epsilon 已鎖定為 {agent.exploration_rate}。")
+        
+        
+#     # ... [啟動 SUMO 和 TraCI 連線]
+#     if not get_sumo_home():
+#         sys.exit(1)
+#     # 決定使用的種子碼
+#     # 訓練時使用固定種子 (例如 42)，測試時使用不同種子 (例如 100)
+#     sim_seed = 42 if is_train_mode else 100 # <--- 這裡可以動態修改
+#     # 【修正】: 根據模式自動選擇 sumo 或 sumo-gui
+#     sumo_binary = "sumo-gui" if is_train_mode else "sumo-gui"
+#     sumoCmd = [
+#         sumo_binary,
+#         "-c", SUMO_CONFIG_FILE,
+#         "--time-to-teleport", "-1",
+#         "--tripinfo-output", "tripinfo.xml" ,
+#         "--seed", str(sim_seed) # 【新增】加入隨機種子碼
+#     ]
+#     traci.start(sumoCmd)
+    
+    
+#     # --- 3. 初始化並開始模擬 ---
+#     step = 0
+#     cumulative_reward = 0.0
+#     logics = traci.trafficlight.getAllProgramLogics(TRAFFIC_LIGHT_ID)
+#     num_phases = len(logics[0].phases) if logics else 4
+#     # 【關鍵修正 1】：新增時間追蹤變數
+#     time_since_last_change = 0
+#     # 【修正】: 動態獲取 state_size 並建立模型
+#     lanes = traci.trafficlight.getControlledLanes(TRAFFIC_LIGHT_ID)
+#     real_state_size = len(list(set(lanes))) + 2
+#     agent.state_size = real_state_size
+#     agent.build_models() # 在獲取真實維度後，才建立模型
+
+#     print(f"成功獲取交通號誌 '{TRAFFIC_LIGHT_ID}' 的相位總數: {num_phases}")
+#     print(f"狀態維度 (State Size): {agent.state_size}")
+
+#     # --- 4. 主模擬與訓練/測試迴圈 (最終穩定結構) ---
+#     while step < MAX_SIMULATION_STEPS:
+#         try:
+#             # 1. 推進單步模擬與時間計數 (每一步都執行)
+#             traci.simulationStep()
+#             step += 1
+#             time_since_last_change += 1 
+
+#             # 2. 決策與學習邏輯：只在固定的 DECISION_INTERVAL 發生
+#             if step % DECISION_INTERVAL == 0:
+                
+#                 current_state = get_state(TRAFFIC_LIGHT_ID)
+#                 current_phase = traci.trafficlight.getPhase(TRAFFIC_LIGHT_ID)
+                
+#                 action = 0 # 預設：維持
+                
+#                 # 2.1 必須是綠燈，且超過最小綠燈時間，才允許 Agent 決策切換
+#                 if current_phase % 2 == 0 and time_since_last_change >= MIN_GREEN_TIME:
+#                     action = agent.choose_action(current_state)
+                    
+#                 # 2.2 執行切換動作
+#                 if action == 1:
+#                     next_phase = (current_phase + 1) % num_phases
+#                     traci.trafficlight.setPhase(TRAFFIC_LIGHT_ID, next_phase)
+#                     time_since_last_change = 0 # 重置計時器
+                
+#                 # 2.3 學習與紀錄 (發生在每個決策點)
+#                 next_state = get_state(TRAFFIC_LIGHT_ID)
+#                 reward, current_total_queue_length = calculate_reward(TRAFFIC_LIGHT_ID)
+                
+#                 if is_train_mode:
+#                     agent.learn(current_state, action, reward, next_state) 
+                
+#                 cumulative_reward += reward
+#                 # 4. 執行 RL 動作 (切換相位)
+#                 # 2.4 學習與紀錄 (發生在每個決策點)
+#                 next_state = get_state(TRAFFIC_LIGHT_ID)
+#                 reward, current_total_queue_length = calculate_reward(TRAFFIC_LIGHT_ID)
+                
+#                 if is_train_mode:
+#                     agent.learn(current_state, action, reward, next_state)
+                
+#                 cumulative_reward += reward
+                
+#                 # 2.5 輸出紀錄
+#                 time_info = f" | Phase Time: {time_since_last_change:.1f}s" # 這裡輸出的是新相位的運行時間
+                
+#                 if is_train_mode:
+#                     status_line = f"時間: {step}s{time_info} | 獎勵: {reward:.2f} | Action: {action} | Epsilon: {agent.exploration_rate:.3f}"
+#                 else:
+#                     status_line = f"時間: {step}s{time_info} | 瞬間獎勵: {reward:.2f} | 排隊總數: {current_total_queue_length:.2f}"
+                
+#                 print(status_line, flush=True)
+
+#             # 3. 處理非 RL 控制的相位跳轉 (黃燈 -> 紅燈/綠燈)
+#             #    由於我們只在綠燈時才讓 Agent 決策切換，在黃燈/紅燈時，SUMO 會自動跳轉。
+#             #    我們只需要確保在 SUMO 自動跳轉後，time_since_last_change 能正確反映新相位的運行時間。
+#             #    (當 time_since_last_change 達到黃燈/紅燈的默認時長時，traci.getPhase() 會返回新值，
+#             #     time_since_last_change 則從 1 開始累積，邏輯正確。)
+
+#                 # --- 紀錄與輸出 ---
+#                 if step > 0:
+#                     # 使用正確的 time_since_last_change 進行輸出
+#                     time_info = f" | 綠燈時間: {time_since_last_change:.1f}s"
+                    
+#                     if is_train_mode:
+#                         status_line = f"時間: {step}s{time_info} | 獎勵: {reward:.2f} | Epsilon: {agent.exploration_rate:.3f}"
+#                     else:
+#                         # 測試模式下的 '總等待' 實際上是排隊總數 (current_total_queue_length)
+#                         status_line = f"時間: {step}s{time_info} | 瞬間獎勵: {reward:.2f} | 排隊總數: {current_total_queue_length:.2f}"
+                    
+#                     print(status_line, flush=True)
+
+#         except traci.TraCIException:
+#             print("SUMO 連線中斷，提前結束迴圈。")
+#             break
+            
+#     # --- 5. 結束模擬 ---
+#     print("正在關閉模擬...")
+#     traci.close()
+    
+#     if is_train_mode:
+#         agent.save_model() # 訓練結束時儲存模型
+#     else:
+#         # 測試模式下的最終結果輸出
+#         print(f"\n✅ 測試完成！使用的模型 ID: {instance_id}")
+#         print(f"模擬總步數: {step}")
+#         print(f"最終累積獎勵: {cumulative_reward:.2f}")
+#     notification.notify(
+#         title = "Python RL Trainning Finish",
+#         message = f"RUN PID: {os.getpid()}, MODEL ID= {instance_id}" ,
+            
+#         # displaying time
+#         timeout=100 # seconds
+#     )   
 def main():
     mode, instance_id = parse_arguments()
     is_train_mode = (mode == 'train')
@@ -356,7 +523,10 @@ def main():
         "-c", SUMO_CONFIG_FILE,
         "--time-to-teleport", "-1",
         "--tripinfo-output", "tripinfo.xml" ,
-        "--seed", str(sim_seed) # 【新增】加入隨機種子碼
+        "--seed", str(sim_seed), # 【新增】加入隨機種子碼
+        
+        # 【新增：啟用子車道模型】
+        "--lateral-resolution", "0.05" # 設置橫向解析度 (例如：每 0.2m 一個子車道)
     ]
     traci.start(sumoCmd)
     
@@ -377,61 +547,62 @@ def main():
     print(f"成功獲取交通號誌 '{TRAFFIC_LIGHT_ID}' 的相位總數: {num_phases}")
     print(f"狀態維度 (State Size): {agent.state_size}")
 
-    # --- 4. 主模擬與訓練/測試迴圈 ---
+    # --- 4. 主模擬與訓練/測試迴圈 (最終穩定結構) ---
     while step < MAX_SIMULATION_STEPS:
         try:
+            # 1. 檢查退出條件
             if traci.simulation.getMinExpectedNumber() <= 0:
                 print("所有車輛已離開模擬，提前結束。")
                 break
+                
+            # 1. 推進單步模擬與時間計數 (每一步都執行)
+            traci.simulationStep()
+            step += 1
+            time_since_last_change += 1 
 
-            # --- 狀態獲取與動作選擇 ---
-            current_state = get_state(TRAFFIC_LIGHT_ID)
-            current_phase = traci.trafficlight.getPhase(TRAFFIC_LIGHT_ID)
-
-            # 使用訓練/測試模式下的 Epsilon 選擇動作
-            action = 0 # 預設維持
-            if current_phase % 2 == 0 and time_since_last_change >= MIN_GREEN_TIME:
-                action = agent.choose_action(current_state)
-
-            # --- 執行動作 ---
-            if action == 1 and current_phase % 2 == 0: # 切換相位
-                traci.trafficlight.setPhase(TRAFFIC_LIGHT_ID, (current_phase + 1) % num_phases)
-                # 等待黃燈 (3秒) + 紅燈緩衝 (2秒)
-                for _ in range(5):
-                    if traci.simulation.getMinExpectedNumber() <= 0: break
-                    traci.simulationStep()
-                    step += 1
-
-                    # 【關鍵修正 3】：切換相位後，重置計時器
-                time_since_last_change = 0
-            else: # 維持相位
-                for _ in range(DECISION_INTERVAL):
-                    if traci.simulation.getMinExpectedNumber() <= 0: break
-                    traci.simulationStep()
-                    step += 1
-            # 【關鍵修正 4】：維持相位後，更新計時器
-            time_since_last_change += DECISION_INTERVAL
-            # --- 學習步驟 (僅限訓練模式) ---
-            next_state = get_state(TRAFFIC_LIGHT_ID)
-            reward, current_total_queue_length = calculate_reward(TRAFFIC_LIGHT_ID)
-            
-            if is_train_mode:
-                agent.learn(current_state, action, reward, next_state)
-            
-            cumulative_reward += reward # 累加總獎勵
-
-            # --- 紀錄與輸出 ---
-            if step > 0:
-                # 使用正確的 time_since_last_change 進行輸出
-                time_info = f" | 綠燈時間: {time_since_last_change:.1f}s"
+            # 2. 決策與學習邏輯：只在固定的 DECISION_INTERVAL 發生
+            if step % DECISION_INTERVAL == 0:
+                
+                # 2.1 獲取狀態 (在決策點獲取)
+                current_state = get_state(TRAFFIC_LIGHT_ID)
+                current_phase = traci.trafficlight.getPhase(TRAFFIC_LIGHT_ID)
+                
+                action = 0 # 預設：維持
+                
+                # 2.2 判斷是否允許 RL 決策 (必須是綠燈，且超過最小綠燈時間)
+                if current_phase % 2 == 0: # 確保在綠燈相位 (0, 2, ...)
+                    
+                    if time_since_last_change >= MIN_GREEN_TIME:
+                        action = agent.choose_action(current_state)
+                    
+                    # 2.3 執行切換動作
+                    if action == 1:
+                        # 切換到下一個相位 (黃燈)
+                        next_phase = (current_phase + 1) % num_phases
+                        traci.trafficlight.setPhase(TRAFFIC_LIGHT_ID, next_phase)
+                        time_since_last_change = 0 # 重置計時器
+                
+                # 2.4 學習與紀錄 (發生在每個決策點)
+                next_state = get_state(TRAFFIC_LIGHT_ID)
+                reward, current_total_queue_length = calculate_reward(TRAFFIC_LIGHT_ID)
                 
                 if is_train_mode:
-                    status_line = f"時間: {step}s{time_info} | 獎勵: {reward:.2f} | Epsilon: {agent.exploration_rate:.3f}"
+                    agent.learn(current_state, action, reward, next_state) 
+                
+                cumulative_reward += reward
+                
+                # 2.5 輸出紀錄 (只在決策點輸出)
+                time_info = f" | Phase Time: {time_since_last_change:.1f}s"
+                
+                if is_train_mode:
+                    status_line = f"時間: {step}s{time_info} | 獎勵: {reward:.2f} | Action: {action} | Epsilon: {agent.exploration_rate:.3f}"
                 else:
-                    # 測試模式下的 '總等待' 實際上是排隊總數 (current_total_queue_length)
                     status_line = f"時間: {step}s{time_info} | 瞬間獎勵: {reward:.2f} | 排隊總數: {current_total_queue_length:.2f}"
                 
                 print(status_line, flush=True)
+
+            # 3. 處理非 RL 控制的相位跳轉 (黃燈 -> 紅燈/綠燈)
+            #    (此處不需要任何額外的程式碼，由 SUMO 內部處理)
 
         except traci.TraCIException:
             print("SUMO 連線中斷，提前結束迴圈。")
@@ -454,7 +625,8 @@ def main():
             
         # displaying time
         timeout=100 # seconds
-    )   
+    )
+
 
 # --- 程式進入點 ---
 if __name__ == "__main__":
