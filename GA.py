@@ -227,6 +227,25 @@ for gen in range(GEN_NUM):
     csv_writer.writerow([gen + 1, best[0], best[1], f"{best.fitness.values[0]:.2f}"])
     # 【新增：強制將緩衝區資料寫入磁碟】
     csv_file.flush() # 這一行很關鍵！
+    # 2. 【新增】即時更新【固定名稱結果檔】(確保中斷也能拿到最好結果)
+    FINAL_RESULT_FILENAME = "./GA_best_result.csv" 
+    try:
+        # 使用 'w' 模式覆寫檔案，確保它永遠只包含最新的最佳解
+        with open(FINAL_RESULT_FILENAME, mode="w", newline="", encoding="utf-8") as final_f:
+            final_writer = csv.writer(final_f)
+            # 僅寫入標頭和最佳結果
+            final_writer.writerow(["generation", "phase1", "phase2", "delay"])
+            final_writer.writerow([
+                gen + 1, # 紀錄是哪一代發現的
+                best[0], 
+                best[1], 
+                f"{best.fitness.values[0]:.2f}"
+            ])
+        # print(f"  -> 已更新固定檔案 {FINAL_RESULT_FILENAME}") # 可選，但可能太頻繁
+    except Exception as e:
+        print(f"警告：無法寫入最終 GA 結果檔案: {e}")
+    
+    # =========================================================
 
 # --- 輸出最終最佳解 ---
 final_best = tools.selBest(pop, 1)[0]
