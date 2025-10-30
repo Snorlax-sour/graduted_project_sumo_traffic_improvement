@@ -4,6 +4,8 @@ from collections import deque
 from tensorflow.keras.models import Sequential, load_model # pyright: ignore[reportMissingImports]
 from tensorflow.keras.layers import Dense, Input # pyright: ignore[reportMissingImports]
 from tensorflow.keras.optimizers import Adam # pyright: ignore[reportMissingImports]
+from tensorflow.keras.metrics import MeanSquaredError
+ # <--- 【新增或確認】
 import os # 新增：用於檢查檔案是否存在
 
 class DQNAgent:
@@ -15,22 +17,41 @@ class DQNAgent:
         self.memory = deque(maxlen=2000)
 
         # 超參數 - 命名已統一
-        self.discount_factor = 0.95
+        self.discount_factor = 0.99
         self.exploration_rate = 1.0
         self.min_exploration = 0.01
         self.exploration_decay = 0.999
-        self.learning_rate = 0.001
+        self.learning_rate = 0.0001
         self.update_target_freq = 20 # 讓目標網路更新的頻率稍微降低
         self.train_counter = 0
 
-        # 建立主網路和目標網路
         # --- 檔案名稱設定 (使用 ID 隔離) ---
         self.instance_id = instance_id
         self.model_filename = f"model_{self.instance_id}.h5"
         self.target_model_filename = f"target_model_{self.instance_id}.h5"
-        self.model = self._build_model()
-        self.target_model = self._build_model()
-        self.update_target_model()
+
+        # 【修正】: 將模型初始化為 None，延遲建立
+        self.model = None
+        self.target_model = None
+
+    def build_models(self):
+        """根據 self.state_size 建立主網路和目標網路。"""
+        if self.model is None: # 只有在模型尚未建立時才建立
+            self.model = self._build_model()
+            self.target_model = self._build_model()
+            self.update_target_model()
+            # 【修正點 A：編譯時使用物件而非字串】
+        # 建立主網路
+        # self.model.compile(
+        #     loss=MeanSquaredError(), # <--- 將 'mse' 字串替換為 MeanSquaredError() 實例
+        #     optimizer=Adam(learning_rate=self.learning_rate)
+        # )
+
+        # # 建立目標網路
+        # self.target_model.compile(
+        #     loss=MeanSquaredError(), # <--- 將 'mse' 字串替換為 MeanSquaredError() 實例
+        #     optimizer=Adam(learning_rate=self.learning_rate)
+        # )
 
     def _build_model(self):
         # Keras 推薦的新寫法，避免 UserWarning
@@ -40,7 +61,7 @@ class DQNAgent:
             Dense(24, activation='relu'),
             Dense(self.action_size, activation='linear')
         ])
-        model.compile(loss='mse', optimizer=Adam(learning_rate=self.learning_rate))
+        model.compile(loss='mse', optimizer=Adam(learning_rate=self.learning_rate), metrics=['mse'])
         return model
     
     def update_target_model(self):
@@ -50,6 +71,10 @@ class DQNAgent:
         self.memory.append((state, action, reward, next_state, done))
 
     def choose_action(self, state):
+        # 【修正】: 確保模型已建立
+        if self.model is None:
+            raise RuntimeError("模型尚未建立。請在初始化 Agent 後呼叫 build_models()。")
+
         if np.random.rand() <= self.exploration_rate:
             return random.choice(self.action_space)
         
@@ -93,6 +118,8 @@ class DQNAgent:
     #         self.exploration_rate *= self.exploration_decay
     def replay(self, batch_size):
         if len(self.memory) < batch_size:
+            return
+        if self.model is None: # 增加安全檢查
             return
             
         minibatch = random.sample(self.memory, batch_size)
@@ -163,8 +190,25 @@ class DQNAgent:
             return False
             
         try:
-            self.model = load_model(self.model_filename)
-            self.target_model = load_model(self.target_model_filename)
+            # 【修正】: 載入模型前，先確保本地模型結構已建立
+            if self.model is None:
+                self.build_models()
+            # 【關鍵修正】：使用 custom_objects 參數解決反序列化錯誤
+            custom_objects = {
+                # 將模型儲存時使用的 'mse' 字串映射到實際的 Keras 函式
+                'mse': MeanSquaredError,
+                'mean_squared_error': MeanSquaredError,
+                # 雖然 Adam 通常會自動載入，但明確指定更安全
+                'Adam': Adam 
+            }
+            self.model = load_model(self.model_filename, 
+                custom_objects=custom_objects, # <--- 修正點
+                compile=True # 確保模型載入後是可用的
+                )
+            self.target_model = load_model(self.target_model_filename, 
+                custom_objects=custom_objects, # <--- 修正點
+                compile=True # 確保模型載入後是可用的
+                )
             self.update_target_model() # 載入後同步權重
             
             # 載入模型後，將探索率降到最低

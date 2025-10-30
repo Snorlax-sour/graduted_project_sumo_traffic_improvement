@@ -1,6 +1,6 @@
 import traci
 from traci._trafficlight import Logic, Phase
-
+from plyer import notification # <--- 新增
 import xml.etree.ElementTree as ET
 
 import os
@@ -138,8 +138,8 @@ def evaluate(individual):
              pass
 
 # --- GA 參數設定 ---
-POP_SIZE = 30          # 每代要訓練幾組個體（幾組紅綠燈設定）
-GEN_NUM = 1           # 總共進化幾代
+POP_SIZE = 100          # 每代要訓練幾組個體（幾組紅綠燈設定）
+GEN_NUM = 100           # 總共進化幾代
 TIME_MIN = 5            # 綠燈最短秒數
 TIME_MAX = 100          # 綠燈最長秒數
 
@@ -251,6 +251,14 @@ try:
     print(f"📄 已將最終最佳解寫入固定檔案 {FINAL_RESULT_FILENAME}")
 except Exception as e:
     print(f"警告：無法寫入最終 GA 結果檔案: {e}")
+
+    notification.notify(
+    title = "Python GA Trainning Finish",
+    message = f"RUN PID: {os.getpid()} , MODEL ID= GA {timestamp}" ,
+        
+    # displaying time
+    timeout=10 # seconds
+)
 # 關閉 csv 檔
 csv_file.close()
 print(f"\n📄 已將所有結果寫入 {filename}")

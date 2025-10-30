@@ -3,6 +3,8 @@ import sys
 import os
 from DQN_RL_Agent import DQNAgent # 直接 import class
 import csv # <--- 新增
+from plyer import notification # <--- 新增
+
 GA_RESULT_PATH = "./GA_best_result.csv"
 last_total_waiting_time = 0.0
 
@@ -98,25 +100,50 @@ def calculate_reward(tls_id):
     try:
         # 1. 獲取所有受該路口控制的車道
         lanes = traci.trafficlight.getControlledLanes(tls_id)
+        # --- 【新增：碰撞懲罰偵測】---
+    
+    # 1.1 偵測全局正在傳送 (Teleporting) 的車輛
+        teleporting_vehicles = traci.simulation.getStartingTeleportIDList()
         
-        # 2. 計算所有車道的總等待時間
-        total_waiting_time = 0.0
-        # 遍歷所有受控車道，計算它們在當前步驟中的總等待時間
-        # 注意：這個值通常在每個 time step 後會被重置，
-        # 或者指在當前 time step 期間，車輛等待的累積時間。
-        # (在 SUMO 中，它是指當前在該車道上等待的車輛的總累積等待時間，是一個「狀態」指標)
-        for lane in lanes:
-            # getWaitingTime: 返回在當前 time step 期間，車輛在車道上等待的累積時間。
-            # getAccumulatedWaitingTime: 返回自上次重置以來，總累積等待時間。
-            # 為了即時獎勵，使用 getWaitingTime 較為合適。
-            total_waiting_time += traci.lane.getWaitingTime(lane)
+        collision_detected_locally = False
+        # 1.2 檢查傳送的車輛是否在你的「受控車道」範圍內
+        for veh_id in teleporting_vehicles:
+            try:
+                current_lane = traci.vehicle.getLaneID(veh_id)
+                # 如果車輛正在傳送，並且它位於你的控制範圍內
+                if current_lane in lanes:
+                    collision_detected_locally = True
+                    break
+            except traci.exceptions.TraCIException:
+                # 如果車輛已經消失 (例如模擬結束或已經被傳送完成)
+                continue
+        # 1.3 施加懲罰
+        if collision_detected_locally:
+            # 如果發生碰撞，則施加一個巨大的負面懲罰
+            # **注意：這個懲罰會完全取代原本的等待時間獎勵**
+            reward = -1000.0  
+            total_waiting_time = traci.trafficlight.getWaitingTime(tls_id) # 獲取當前等待時間作為統計值
+            print(f"🚨🚨 重大警告：在路口 {tls_id} 偵測到局部碰撞懲罰 (-1000.0)！", file=sys.stderr)
+            return reward, total_waiting_time
+        else:
+            # 2. 計算所有車道的總等待時間
+            total_waiting_time = 0.0
+            # 遍歷所有受控車道，計算它們在當前步驟中的總等待時間
+            # 注意：這個值通常在每個 time step 後會被重置，
+            # 或者指在當前 time step 期間，車輛等待的累積時間。
+            # (在 SUMO 中，它是指當前在該車道上等待的車輛的總累積等待時間，是一個「狀態」指標)
+            for lane in lanes:
+                # getWaitingTime: 返回在當前 time step 期間，車輛在車道上等待的累積時間。
+                # getAccumulatedWaitingTime: 返回自上次重置以來，總累積等待時間。
+                # 為了即時獎勵，使用 getWaitingTime 較為合適。
+                total_waiting_time += traci.lane.getWaitingTime(lane)
+                
+            # 3. 定義獎勵：最小化等待時間 (負的等待時間)
+            reward = -total_waiting_time
             
-        # 3. 定義獎勵：最小化等待時間 (負的等待時間)
-        reward = -total_waiting_time
-        
-        # 第二個回傳值 (例如用於統計)
-        return reward, total_waiting_time
-        
+            # 第二個回傳值 (例如用於統計)
+            return reward, total_waiting_time
+            
     except traci.TraCIException as e:
         # 如果路口 ID 錯誤或 TraCI 連線中斷
         # print(f"計算獎勵時發生 TraCI 錯誤: {e}", file=sys.stderr)
@@ -241,24 +268,11 @@ def parse_arguments():
         if mode not in ['train', 'test']:
             print("❌ 錯誤: 第一個參數必須是 'train' 或 'test'。")
             sys.exit(1)
-        
-        # 第二個參數是模型名稱，如果沒有提供，則使用 'default_rl'
-        instance_id = sys.argv[2] if len(sys.argv) > 2 else "default_rl"
-        return mode, instance_id
-    
-    # 互動式模式：如果沒有命令行參數，則進入互動模式
-    print("\n--- DQN 模式選擇 ---")
-    while True:
-        mode_input = input("請選擇模式 (輸入 'train' 或 'test'): ").strip().lower()
-        if mode_input in ['train', 'test']:
-            mode = mode_input
-            break
-        else:
-            print("輸入無效，請輸入 'train' 或 'test'。")
-            
-    instance_id = input(f"請輸入模型名稱 (Model ID/Instance ID, 預設: default_rl): ").strip()
-    if not instance_id:
-        instance_id = "default_rl"
+        instance_id = sys.argv[2]
+    elif len(sys.argv) == 2: # 處理只給了模式或ID的情況
+        # 為了簡化，我們假設如果只有一個參數，它就是模型ID，並使用默認的訓練模式
+        print(f"警告：只提供一個參數 '{sys.argv[1]}'，將其作為模型ID並進入默認的訓練模式。")
+        instance_id = sys.argv[1]
         
     return mode, instance_id
 
@@ -270,14 +284,14 @@ def main():
     # 參數設定
     TRAFFIC_LIGHT_ID = "1253678773"
     SUMO_CONFIG_FILE = "osm.sumocfg"
-    MAX_SIMULATION_STEPS = 5000 # 模擬總步數
+    MAX_SIMULATION_STEPS = 100000 # 模擬總步數
     DECISION_INTERVAL = 5 # 每隔 5 步進行一次決策
-    STATE_SIZE = 6
+    MIN_GREEN_TIME = 10 # 最小綠燈時間
     ACTION_SPACE = [0, 1]  # 0: Maintain, 1: Change Phase
     
     # --- 2. 初始化 DQN 代理，使用解析出的 instance_id ---
     print(f"使用的 RL 實例 ID (instance_id): {instance_id}")
-    agent = DQNAgent(STATE_SIZE, ACTION_SPACE, instance_id=instance_id)
+    agent = DQNAgent(state_size=6, action_space=ACTION_SPACE, instance_id=instance_id) # state_size 暫時為 0
 
 
     if is_train_mode:
@@ -304,79 +318,87 @@ def main():
     # ... [啟動 SUMO 和 TraCI 連線]
     if not get_sumo_home():
         sys.exit(1)
-        
-    # 注意：測試模式下可能希望使用 'sumo-gui'
-    # sumoCmd = ["sumo-gui" if not is_train_mode else "sumo", ...] 
-    # 這裡為簡潔保持使用 sumo-gui，但訓練時應改為 "sumo" 提高速度
+    # 決定使用的種子碼
+    # 訓練時使用固定種子 (例如 42)，測試時使用不同種子 (例如 100)
+    sim_seed = 42 if is_train_mode else 100 # <--- 這裡可以動態修改
+    # 【修正】: 根據模式自動選擇 sumo 或 sumo-gui
+    sumo_binary = "sumo" if is_train_mode else "sumo-gui"
     sumoCmd = [
-        "sumo-gui", # 為了測試方便，暫時用 GUI
+        sumo_binary,
         "-c", SUMO_CONFIG_FILE,
         "--time-to-teleport", "-1",
-        "--tripinfo-output", "tripinfo.xml" 
+        "--tripinfo-output", "tripinfo.xml" ,
+        "--seed", str(sim_seed) # 【新增】加入隨機種子碼
     ]
     traci.start(sumoCmd)
     
     
     # --- 3. 初始化並開始模擬 ---
     step = 0
-    total_reward = 0.0 
+    cumulative_reward = 0.0
     logics = traci.trafficlight.getAllProgramLogics(TRAFFIC_LIGHT_ID)
     num_phases = len(logics[0].phases) if logics else 4
+
+    # 【修正】: 動態獲取 state_size 並建立模型
+    lanes = traci.trafficlight.getControlledLanes(TRAFFIC_LIGHT_ID)
+    real_state_size = len(list(set(lanes))) + 2
+    agent.state_size = real_state_size
+    agent.build_models() # 在獲取真實維度後，才建立模型
+
     print(f"成功獲取交通號誌 '{TRAFFIC_LIGHT_ID}' 的相位總數: {num_phases}")
-    print(f"狀態維度 (State Size): {STATE_SIZE}")
+    print(f"狀態維度 (State Size): {agent.state_size}")
 
     # --- 4. 主模擬與訓練/測試迴圈 ---
     while step < MAX_SIMULATION_STEPS:
         try:
+            if traci.simulation.getMinExpectedNumber() <= 0:
+                print("所有車輛已離開模擬，提前結束。")
+                break
+
             # --- 狀態獲取與動作選擇 ---
             current_state = get_state(TRAFFIC_LIGHT_ID)
-            # 使用訓練/測試模式下的 Epsilon 選擇動作
-            action = agent.choose_action(current_state) 
-
-            # ... [省略動作執行代碼 (維持/切換黃燈/切換綠燈)]
-            # 確保這裡的 set_traffic_light_phases 和 simulationStep 邏輯正確執行
-            # ...
-            
-            # --- 執行動作的完整步驟 (範例，請替換成您的實際邏輯) ---
             current_phase = traci.trafficlight.getPhase(TRAFFIC_LIGHT_ID)
-            phase_state = traci.trafficlight.getPhaseState(TRAFFIC_LIGHT_ID)
-            phase_duration = traci.trafficlight.getPhaseDuration(TRAFFIC_LIGHT_ID)
-            
-            if action == 1: # 切換到下一相位 (需要黃燈緩衝)
-                # 執行黃燈
-                # ... (執行 set_traffic_light_phases, traci.simulationStep)
-                pass # 這裡應包含您原始的黃燈切換邏輯
-            else: # 維持當前相位
-                # 執行 DECISION_INTERVAL 步
+            time_in_phase = traci.trafficlight.getPhaseDuration(TRAFFIC_LIGHT_ID) - (traci.trafficlight.getNextSwitch(TRAFFIC_LIGHT_ID) - traci.simulation.getTime())
+
+            # 使用訓練/測試模式下的 Epsilon 選擇動作
+            action = 0 # 預設維持
+            if current_phase % 2 == 0 and time_in_phase >= MIN_GREEN_TIME:
+                action = agent.choose_action(current_state)
+
+            # --- 執行動作 ---
+            if action == 1 and current_phase % 2 == 0: # 切換相位
+                traci.trafficlight.setPhase(TRAFFIC_LIGHT_ID, (current_phase + 1) % num_phases)
+                # 等待黃燈 (3秒) + 紅燈緩衝 (2秒)
+                for _ in range(5):
+                    if traci.simulation.getMinExpectedNumber() <= 0: break
+                    traci.simulationStep()
+                    step += 1
+            else: # 維持相位
                 for _ in range(DECISION_INTERVAL):
+                    if traci.simulation.getMinExpectedNumber() <= 0: break
                     traci.simulationStep()
                     step += 1
             
             # --- 學習步驟 (僅限訓練模式) ---
             next_state = get_state(TRAFFIC_LIGHT_ID)
-            reward, total_waiting_time = calculate_reward(TRAFFIC_LIGHT_ID)
+            reward, current_total_waiting_time = calculate_reward(TRAFFIC_LIGHT_ID)
             
             if is_train_mode:
                 agent.learn(current_state, action, reward, next_state)
             
-            total_reward += reward # 累加總獎勵
+            cumulative_reward += reward # 累加總獎勵
 
             # --- 紀錄與輸出 ---
             if step > 0:
-                # 重新獲取當前狀態資訊
-                current_phase = traci.trafficlight.getPhase(TRAFFIC_LIGHT_ID)
-                phase_state = traci.trafficlight.getPhaseState(TRAFFIC_LIGHT_ID)
-                phase_duration = traci.trafficlight.getPhaseDuration(TRAFFIC_LIGHT_ID)
-                time_elapsed = traci.trafficlight.getPhaseTime(TRAFFIC_LIGHT_ID) 
-                
+                # 【修正點 3】: 新增綠燈時間到輸出字串中
+                time_info = f" | 綠燈時間: {time_in_phase:.1f}s"
                 # 根據模式決定輸出內容
                 if is_train_mode:
-                    status_line = f"時間: {step}s | 累積獎勵: {total_reward:.2f} | Epsilon: {agent.exploration_rate:.3f}"
+                    status_line = f"時間: {step}s{time_info} | 獎勵: {reward:.2f} | Epsilon: {agent.exploration_rate:.3f}"
                 else:
-                    status_line = f"時間: {step}s | 瞬間獎勵: {reward:.2f} | 總等待: {total_waiting_time:.2f}"
+                    status_line = f"時間: {step}s{time_info} | 瞬間獎勵: {reward:.2f} | 總等待: {current_total_waiting_time:.2f}"
                 
                 print(status_line, flush=True)
-                print(f"  > TL 狀態: Phase Index={current_phase}, State='{phase_state}', Duration={phase_duration:.1f}s, Time Elapsed={time_elapsed:.1f}s", flush=True)
 
         except traci.TraCIException:
             print("SUMO 連線中斷，提前結束迴圈。")
@@ -392,13 +414,19 @@ def main():
         # 測試模式下的最終結果輸出
         print(f"\n✅ 測試完成！使用的模型 ID: {instance_id}")
         print(f"模擬總步數: {step}")
-        print(f"總累計等待時間 (負獎勵總和): {-total_reward:.2f} 秒")
-
+        print(f"最終累積獎勵: {cumulative_reward:.2f}")
+    notification.notify(
+        title = "Python RL Trainning Finish",
+        message = f"RUN PID: {os.getpid()}, MODEL ID= {instance_id}" ,
+            
+        # displaying time
+        timeout=100 # seconds
+    )   
 
 # --- 程式進入點 ---
 if __name__ == "__main__":
     get_sumo_home()
-    run_experiment()
+    # run_experiment()
     # --- 6. 命令行參數處理：新增一個參數來控制模式 ---
-    # main()
+    main()
     print("程式執行完畢！")

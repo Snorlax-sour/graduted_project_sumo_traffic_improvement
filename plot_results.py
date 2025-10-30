@@ -81,4 +81,4 @@ def plot_log_data(log_file='execute.txt'):
         print(f"錯誤：找不到日誌檔案 '{log_file}'。")
 
 if __name__ == '__main__':
-    plot_log_data()
+    plot_log_data("execute_RL_202510260818.txt")    

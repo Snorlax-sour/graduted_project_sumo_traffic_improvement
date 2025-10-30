@@ -3,3 +3,5 @@ traci
 deap
 tensorflow
 numpy
+plyer
+dbus-python # linux
