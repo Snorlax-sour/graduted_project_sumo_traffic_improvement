@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<!-- generated on 2025-11-01 20:59:31.357385 by randomTrips.py UNKNOWN
+<!-- generated on 2025-11-01 04:42:09.038262 by randomTrips.py UNKNOWN
 <configuration>
     <net-file value="./osm.net.xml"/>
-    <output-trip-file value="./trips.trips_p5_e2500.xml"/>
+    <output-trip-file value="./trips.trips_p15_e7500.xml"/>
     <end value="2500.0"/>
     <period value="5.0"/>
 </configuration>

@@ -21,10 +21,10 @@ def get_sumo_home():
 get_sumo_home()
 
 TRAFFIC_LIGHT_ID="1253678773"
-GA_INSTANCE_ID = "default_ga"
+GA_INSTANCE_ID = f"default_ga_{os.getpid()}"
 if len(sys.argv) > 1:
     GA_INSTANCE_ID = sys.argv[1]
-print(f"啟動 GA 實例 ID: {GA_INSTANCE_ID}")
+print(f"{os.getpid}: 啟動 GA 實例 ID: {GA_INSTANCE_ID}",flush=True)
 
 now = datetime.datetime.now()
 timestamp = now.strftime("%Y-%m-%d_%H-%M-%S")
@@ -35,11 +35,18 @@ csv_writer = csv.writer(csv_file)
 csv_writer.writerow(["generation", "phase1", "phase2", "delay"])
 
 TRIPINFO_OUTPUT_PATH = f"tripinfo_{GA_INSTANCE_ID}.xml"
-
+sumo_binary = "sumo"
+SUMO_CONFIG_FILE="osm.sumocfg"
+sim_seed  = 42
 sumoCmd = [
-    "sumo", 
-    "-c", "osm.sumocfg",
-    "--time-to-teleport", "-1",
+        sumo_binary,
+        "-c", SUMO_CONFIG_FILE,
+        "--time-to-teleport", "300",
+        "--seed", str(sim_seed), # 【新增】加入隨機種子碼
+        
+        # 【新增：啟用子車道模型】
+        "--lateral-resolution", "0.05", # 設置橫向解析度 (例如：每 0.2m 一個子車道)
+    
     "--tripinfo-output", TRIPINFO_OUTPUT_PATH
 ]
 
@@ -48,8 +55,8 @@ def get_total_delay(filename):
         tree = ET.parse(filename)
         root = tree.getroot()
     except (FileNotFoundError, ET.ParseError) as e:
-        print(f"警告：無法解析或讀取 '{filename}' (錯誤: {e}). 返回極大延遲作為懲罰。", file=sys.stderr)
-        return 1e9
+        print(f"{os.getpid}: 警告：無法解析或讀取 '{filename}' (錯誤: {e}). 返回極大延遲作為懲罰。", file=sys.stderr)
+        return -1
         
     total_waiting_time = 0.0
     for trip in root.findall("tripinfo"):
@@ -66,24 +73,34 @@ def evaluate(individual):
     # 確保每個進程的輸出檔案和 TraCI 連線名稱都是唯一的
     unique_tripinfo = f"tripinfo_{GA_INSTANCE_ID}_PID{pid}.xml"
     unique_sumo_cmd = [
-        "sumo", 
-        "-c", "osm.sumocfg",
-        "--time-to-teleport", "-1",
+        sumo_binary,
+        "-c", SUMO_CONFIG_FILE,
+        "--time-to-teleport", "300",
+        "--seed", str(sim_seed), # 【新增】加入隨機種子碼
+        
+        # 【新增：啟用子車道模型】
+        "--lateral-resolution", "0.05", # 設置橫向解析度 (例如：每 0.2m 一個子車道)
+    
         "--tripinfo-output", unique_tripinfo
-    ]
+        ]
 
     try:
         # 使用唯一的 label 啟動 TraCI
         traci.start(unique_sumo_cmd, label=f"GA_TL_{pid}") 
 
         # --- 建立時相邏輯 ---
+        # --- 修正後的時相邏輯 ---
         logic = Logic(
             programID="ga_prog",
             phases=[            
-                Phase(individual[0], 'G' * 12 + 'r' * 12),
-                Phase(3, 'y' * 12 + 'r' * 12),
-                Phase(individual[1], 'r' * 12 + 'G' * 12), 
-                Phase(3, 'r' * 12 + 'y' * 12)
+                # Phase 0: 讓信號組 0-7 綠燈 (包含 tl-index 4)
+                Phase(individual[0], 'G' * 8 + 'r' * 8),
+                # Phase 1: 黃燈
+                Phase(1, 'y' * 8 + 'r' * 8),
+                # Phase 2: 讓信號組 8-15 綠燈
+                Phase(individual[1], 'r' * 8 + 'G' * 8), 
+                # Phase 3: 黃燈
+                Phase(3, 'r' * 8 + 'y' * 8) 
             ],
             type=0,
             currentPhaseIndex=0
@@ -93,7 +110,7 @@ def evaluate(individual):
         traci.trafficlight.setPhase(TRAFFIC_LIGHT_ID, 0)
         
         # 確保模擬運行足夠長的時間
-        MAX_SIM_STEPS = 600
+        MAX_SIM_STEPS = 100000
         step = 0
         while step < MAX_SIM_STEPS and traci.simulation.getMinExpectedNumber() > 0:
             traci.simulationStep()
@@ -104,12 +121,15 @@ def evaluate(individual):
             delay = get_total_delay(unique_tripinfo) 
             return delay,
         except Exception as xml_e:
-            return (1e9,) 
+            print(f"xlm_e error: {xml_e}", flush=True)
+            return (-1,) 
             
     except traci.TraCIException as e:
-        return (1e9,) 
+        print(f"traci.TraCIException : {e}", flush=True)
+        return (-1,) 
     except Exception as e_general:
-        return (1e9,) 
+        print(f"Exception error: {e_general}", flush=True)
+        return (-1,) 
     finally:
         try:
              traci.close()
@@ -121,7 +141,7 @@ def evaluate(individual):
 
 # --- GA 參數設定與初始化 (保持不變) ---
 POP_SIZE = 100
-GEN_NUM = 100
+GEN_NUM = 10000
 TIME_MIN = 5
 TIME_MAX = 100
 
@@ -144,7 +164,7 @@ toolbox.register("select", tools.selTournament, tournsize=3)
 pop = toolbox.population(n=POP_SIZE)
 first_values = 0
 
-print("\n🔁 開始進行 GA 訓練...\n",flush=True)
+print(f"{os.getpid}: \n🔁 開始進行 GA 訓練...\n",flush=True)
 
 # 【關鍵修正 1】：將 ProcessPoolExecutor 放在最外層
 with concurrent.futures.ProcessPoolExecutor() as executor:

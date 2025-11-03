@@ -1,0 +1,9 @@
+path: /home/sour/Sumo/2025-08-11-19-32-20/datasets/custom_data
+train: images
+val: images
+
+names:
+  0: truck
+  1: passenger
+  2: motorcycle
+  3: bus

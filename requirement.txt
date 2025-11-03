@@ -1,7 +1,15 @@
 # 參考
+# SUMO
 traci
+# GA
 deap
+# RL Deep Learning
 tensorflow
+# RL Deep Learning
 numpy
+# Desktop Notification
 plyer
-dbus-python # linux
+dbus-python # linux desktop for plyer
+# YOLOv8 [yolov8](https://learnopencv.com/train-yolov8-on-custom-dataset/)
+ultralytics
+clearml

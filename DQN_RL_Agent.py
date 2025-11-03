@@ -21,12 +21,12 @@ class DQNAgent:
         self.memory = deque(maxlen=20000)
 
         # 超參數 - 命名已統一
-        self.discount_factor = 0.99
+        self.discount_factor = 0.95
         self.exploration_rate = 1.0
         self.min_exploration = 0.01
-        self.exploration_decay = 0.9995
-        self.learning_rate = 0.0001
-        self.update_target_freq = 100 # 讓目標網路更新的頻率稍微降低
+        self.exploration_decay = 0.9999
+        self.learning_rate = 0.001
+        self.update_target_freq = 10 # 讓目標網路更新的頻率稍微降低
         self.train_counter = 0
 
         # --- 檔案名稱設定 (使用 ID 隔離) ---

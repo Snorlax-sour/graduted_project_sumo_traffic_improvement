@@ -123,12 +123,18 @@ def calculate_reward(tls_id):
         # Delta = (舊的累積等待時間 - 新的累積等待時間)
         # 如果 Delta > 0，表示等待時間減少，獎勵為正。
         delta_delay = last_total_waiting_time - current_total_waiting_time
-        
+        delta_delay *= -1
+        # 🌟 【關鍵修正】：引入二次方排隊懲罰
+    # 1. 獲取當前的總排隊車輛數 (Halting Number)
+        current_total_queue_length  = get_total_queue_length(tls_id)
         # 4. 更新全域變數
         last_total_waiting_time = current_total_waiting_time
+        # 2. 懲罰係數 (可調整 0.1 ~ 0.3)
+        beta = 0.2 
         
+        # 3. 最終獎勵 = 等待時間變化獎勵 - 二次方排隊懲罰
+        reward =  delta_delay - (beta * (current_total_queue_length ** 2))
         # 5. 定義獎勵：最大化等待時間的減少
-        reward = delta_delay * 1.0 
         
         # 第二個返回值 'current_total_waiting_time' 兼容主迴圈
         return reward, current_total_waiting_time
@@ -144,7 +150,34 @@ def calculate_reward(tls_id):
     except Exception as e_general:
         # 捕獲其他錯誤
         return 0.0, 0.0
+def get_total_queue_length(tls_id):
+    """
+    計算給定交通號誌所控制的所有車道上的總排隊車輛數 (Halting Number)。
+    """
+    try:
+        # 獲取交通號誌控制的所有車道
+        lanes = traci.trafficlight.getControlledLanes(tls_id)
+        # 使用 set 去除重複的車道 ID (因為一個信號燈可能控制同一車道的不同部分)
+        unique_lanes = list(set(lanes))
+        
+        total_queue_length = 0
+        
+        # 遍歷所有受控車道
+        for lane in unique_lanes:
+            # 獲取當前步驟靜止或排隊的車輛數 (速度小於 0.1 m/s)
+            # traci.lane.getLastStepHaltingNumber(lane) 是計算排隊長度的標準 API
+            total_queue_length += traci.lane.getLastStepHaltingNumber(lane)
+            
+        return total_queue_length
+            
+    except traci.TraCIException:
+        # SUMO 連線中斷或其他 traci 錯誤
+        return 0
+    except Exception:
+        # 其他錯誤
+        return 0
 
+# (注意：這個函式需要在您的程式碼中定義一次)
 # --- 備用函數：如果 vehicle.getWaitingTime 失敗，則回退到排隊長度 ---
 # 這是確保程式不會因為 API 不相容而崩潰的保護層
 def calculate_reward_queue_fallback(tls_id):
@@ -479,7 +512,7 @@ def main():
     # 參數設定
     TRAFFIC_LIGHT_ID = "1253678773"
     SUMO_CONFIG_FILE = "osm.sumocfg"
-    MAX_SIMULATION_STEPS = 100000 # 模擬總步數
+    MAX_SIMULATION_STEPS = 25000 # 模擬總步數
     DECISION_INTERVAL = 5 # 每隔 5 步進行一次決策
     MIN_GREEN_TIME = 10 # 最小綠燈時間
     ACTION_SPACE = [0, 1]  # 0: Maintain, 1: Change Phase
@@ -521,8 +554,8 @@ def main():
     sumoCmd = [
         sumo_binary,
         "-c", SUMO_CONFIG_FILE,
-        "--time-to-teleport", "-1",
-        "--tripinfo-output", "tripinfo.xml" ,
+        "--time-to-teleport", "300",
+        "--tripinfo-output", "tripinfo_RL_{}.xml" ,
         "--seed", str(sim_seed), # 【新增】加入隨機種子碼
         
         # 【新增：啟用子車道模型】
@@ -593,11 +626,12 @@ def main():
                 
                 # 2.5 輸出紀錄 (只在決策點輸出)
                 time_info = f" | Phase Time: {time_since_last_change:.1f}s"
-                
+                phase_state = traci.trafficlight.getRedYellowGreenState(TRAFFIC_LIGHT_ID)
+        
                 if is_train_mode:
-                    status_line = f"時間: {step}s{time_info} | 獎勵: {reward:.2f} | Action: {action} | Epsilon: {agent.exploration_rate:.3f}"
+                    status_line = f"時間: {step}s{time_info} | 獎勵: {reward:.2f} | States: {phase_state} | Action: {action} | Epsilon: {agent.exploration_rate:.3f}"
                 else:
-                    status_line = f"時間: {step}s{time_info} | 瞬間獎勵: {reward:.2f} | 排隊總數: {current_total_queue_length:.2f}"
+                    status_line = f"時間: {step}s{time_info} | 瞬間獎勵: {reward:.2f}  | States: {phase_state} | 排隊總數: {current_total_queue_length:.2f}"
                 
                 print(status_line, flush=True)
 
