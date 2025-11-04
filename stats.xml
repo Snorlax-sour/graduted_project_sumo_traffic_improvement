@@ -1,18 +1,17 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<!-- generated on 2025-11-04 14:12:23 by Eclipse SUMO GUI Version 1.24.0
+<!-- generated on 2025-11-04 14:17:12 by Eclipse SUMO GUI Version 1.24.0
 <sumoConfiguration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/sumoConfiguration.xsd">
 
     <input>
-        <net-file value="./osm.net.xml"/>
-        <route-files value="./routes.rou.xml"/>
-        <additional-files value="./osm.poly.xml.gz,./osm_stops.add.xml,./output.add.xml"/>
+        <net-file value="/home/sour/Sumo/2025-11-04-13-16-48/2025-11-04-14-16-43/osm.net.xml.gz"/>
+        <route-files value="/home/sour/Sumo/2025-11-04-13-16-48/2025-11-04-14-16-43/osm.bus.trips.xml,/home/sour/Sumo/2025-11-04-13-16-48/2025-11-04-14-16-43/osm.motorcycle.trips.xml,/home/sour/Sumo/2025-11-04-13-16-48/2025-11-04-14-16-43/osm.passenger.trips.xml,/home/sour/Sumo/2025-11-04-13-16-48/2025-11-04-14-16-43/osm.truck.trips.xml"/>
+        <additional-files value="/home/sour/Sumo/2025-11-04-13-16-48/2025-11-04-14-16-43/osm.poly.xml.gz,/home/sour/Sumo/2025-11-04-13-16-48/2025-11-04-14-16-43/output.add.xml"/>
     </input>
 
     <output>
-        <tripinfo-output value="./tripinfos.xml"/>
-        <stop-output value="./stopinfos.xml"/>
-        <statistic-output value="./stats.xml"/>
+        <tripinfo-output value="/home/sour/Sumo/2025-11-04-13-16-48/2025-11-04-14-16-43/tripinfos.xml"/>
+        <statistic-output value="/home/sour/Sumo/2025-11-04-13-16-48/2025-11-04-14-16-43/stats.xml"/>
     </output>
 
     <processing>
@@ -32,15 +31,15 @@
     </report>
 
     <gui_only>
-        <gui-settings-file value="./osm.view.xml"/>
+        <gui-settings-file value="/home/sour/Sumo/2025-11-04-13-16-48/2025-11-04-14-16-43/osm.view.xml"/>
     </gui_only>
 
 </sumoConfiguration>
 -->
 
 <statistics xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/statistic_file.xsd">
-    <performance clockBegin="1762236743.85" clockEnd="1762236760.32" clockDuration="16.47" traciDuration="0.00" realTimeFactor="0.00" vehicleUpdatesPerSecond="0.00" personUpdatesPerSecond="0.00" begin="0.00" end="0.00" duration="0.00"/>
-    <vehicles loaded="2" inserted="0" running="0" waiting="0"/>
+    <performance clockBegin="1762237032.89" clockEnd="1762237052.39" clockDuration="19.50" traciDuration="0.00" realTimeFactor="0.00" vehicleUpdatesPerSecond="0.00" personUpdatesPerSecond="0.00" begin="0.00" end="0.00" duration="0.00"/>
+    <vehicles loaded="8" inserted="0" running="0" waiting="0"/>
     <teleports total="0" jam="0" yield="0" wrongLane="0"/>
     <safety collisions="0" emergencyStops="0" emergencyBraking="0"/>
     <persons loaded="0" running="0" jammed="0"/>
