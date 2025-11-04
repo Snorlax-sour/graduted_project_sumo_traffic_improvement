@@ -2,3 +2,5 @@
 venv/
 *.png
 *.csv
+.ssh
+

@@ -1,25 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<!-- generated on 2025-10-31 02:08:38 by Eclipse SUMO netedit Version 1.24.0
+<!-- generated on 2025-11-04 19:22:58 by Eclipse SUMO netedit Version 1.24.0
 -->
 
 <routes xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/routes_file.xsd">
-    <!-- VTypes# 機車可以容忍較小的橫向間隙
-       minGapLat="0.05" -->
-    <!-- # 【新增 latAlignment 參數在這裡！】
-       latAlignment="right" -->
-    <vType id="motorcycle" length="1.50" minGap="0.30" maxSpeed="27.78" 
-       minGapLat="0.05" speedFactor="normc(1.50,0.10,0.20,2.00)" vClass="motorcycle" width="0.80" lcStrategic="5" latAlignment="compact"  lcCooperative="0.2" lcSpeedGain="2.0" lcKeepRight="0" lcPushy="2.0" accel="4.0"/>
-    <vType id="passenger" length="5.00" latAlignment="0.7"  minGap="1.00" maxSpeed="33.33" speedFactor="normc(1.20,0.10,0.20,2.00)" vClass="passenger" width="1.80" lcStrategic="3" lcKeepRight="0.1"/>
-    <vType id="truck" vClass="truck" length="10.00" width="2.50" minGap="2.00" maxSpeed="20.00" 
-       lcStrategic="1.0" lcKeepRight="1.0" 
-       
-       
-       latAlignment="0.8"
-       
-       />
-       <!-- # 卡車通常換道意願較低，但 lcKeepRight 可以設高 -->
-       
-       <!-- # 設定卡車在車道內靠右對齊 (right) -->
+    <!-- VTypes -->
+    <vType id="motorcycle" length="1.50" minGap="0.30" maxSpeed="27.78" speedFactor="normc(1.50,0.10,0.20,2.00)" vClass="motorcycle" width="0.80" latAlignment="compact" minGapLat="0.05" lcStrategic="120" lcCooperative="0" lcSpeedGain="15" lcKeepRight="10" lcOpposite="5" lcPushy="1" lcStrategicLookahead="10000" lcCooperativeSpeed="1" lcOvertakeRight="1" lcKeepRightAcceptanceTime="1" lcContRight="1" accel="4.0"/>
+    <vType id="passenger" length="5.00" minGap="1.00" maxSpeed="33.33" speedFactor="normc(1.20,0.10,0.20,2.00)" vClass="passenger" width="1.80" latAlignment="left" minGapLat="0.20" lcStrategic="100" lcCooperative="0" lcSpeedGain="10" lcKeepRight="5" lcOpposite="3" lcPushy="0.8" lcStrategicLookahead="5000" lcCooperativeSpeed="1" lcOvertakeRight="1" lcKeepRightAcceptanceTime="1"/>
+    <vType id="truck" length="10.00" minGap="2.00" maxSpeed="20.00" vClass="truck" width="2.50" latAlignment="left" lcStrategic="250" lcCooperative="0.8" lcKeepRight="1.0" lcCooperativeSpeed="1"/>
     <!-- Vehicles, persons and containers (sorted by depart) -->
 </routes>
