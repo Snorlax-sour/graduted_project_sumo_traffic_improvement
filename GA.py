@@ -65,83 +65,84 @@ def get_total_delay(filename):
             total_waiting_time += timeLoss
     return total_waiting_time
 
-# 【修正：將 evaluate 函數的 tripinfo 檔案名改為動態，以支援並行】
 def evaluate(individual):
-    # 【關鍵修正 3】：使用 Process ID 來創建獨立的 tripinfo 檔案和 TraCI label
     pid = os.getpid()
-    
-    # 確保每個進程的輸出檔案和 TraCI 連線名稱都是唯一的
     unique_tripinfo = f"tripinfo_{GA_INSTANCE_ID}_PID{pid}.xml"
     unique_sumo_cmd = [
-        sumo_binary,
-        "-c", SUMO_CONFIG_FILE,
+        sumo_binary, "-c", SUMO_CONFIG_FILE,
         "--time-to-teleport", "300",
-        "--seed", str(sim_seed), # 【新增】加入隨機種子碼
-        
-        # 【新增：啟用子車道模型】
-        "--lateral-resolution", "0.05", # 設置橫向解析度 (例如：每 0.2m 一個子車道)
-    
+        "--seed", str(sim_seed),
+        "--lateral-resolution", "0.05",
         "--tripinfo-output", unique_tripinfo
-        ]
+    ]
 
     try:
-        # 使用唯一的 label 啟動 TraCI
         traci.start(unique_sumo_cmd, label=f"GA_TL_{pid}") 
 
-        # --- 建立時相邏輯 ---
-        # --- 修正後的時相邏輯 ---
+        # --- 【核心動態修改點】 ---
+        # 1. 抓取該路口在路網中的原始邏輯
+        all_logics = traci.trafficlight.getAllProgramLogics(TRAFFIC_LIGHT_ID)
+        if not all_logics:
+            return (-1,)
+        
+        default_logic = all_logics[0]
+        # 2. 自動取得狀態字串的長度（例如 'GGGrrr' 就是 6）
+        state_length = len(default_logic.phases[0].state)
+        
+        # 3. 定義時相模式 (這裡假設是簡單的對開，實際可根據 default_logic.phases 提取)
+        # 如果要更精確，可以直接提取原始時相的 state 字串
+        orig_phase0_state = default_logic.phases[0].state # 通常是第一時相綠燈
+        orig_phase2_state = ""
+        
+        # 尋找下一個主要的綠燈時相（跳過黃燈）
+        for p in default_logic.phases:
+            if 'G' in p.state and p.state != orig_phase0_state:
+                orig_phase2_state = p.state
+                break
+        
+        # 如果沒找到第二時相，就用反轉的（保險機制）
+        if not orig_phase2_state:
+            orig_phase2_state = orig_phase0_state.replace('G', 'r').replace('g', 'r').replace('r', 'G')
+
+        # 4. 建立動態時相邏輯
         logic = Logic(
             programID="ga_prog",
             phases=[            
-                # Phase 0: 讓信號組 0-7 綠燈 (包含 tl-index 4)
-                Phase(individual[0], 'G' * 8 + 'r' * 8),
-                # Phase 1: 黃燈
-                Phase(1, 'y' * 8 + 'r' * 8),
-                # Phase 2: 讓信號組 8-15 綠燈
-                Phase(individual[1], 'r' * 8 + 'G' * 8), 
-                # Phase 3: 黃燈
-                Phase(3, 'r' * 8 + 'y' * 8) 
+                # 使用從路網自動抓取的字串，長度絕對會對應
+                Phase(individual[0], orig_phase0_state),
+                Phase(3, default_logic.phases[1].state if len(default_logic.phases) > 1 else orig_phase0_state.replace('G', 'y')),
+                Phase(individual[1], orig_phase2_state), 
+                Phase(3, default_logic.phases[3].state if len(default_logic.phases) > 3 else orig_phase2_state.replace('G', 'y'))
             ],
             type=0,
             currentPhaseIndex=0
         )
+        # --- 【動態修改結束】 ---
         traci.trafficlight.setProgramLogic(TRAFFIC_LIGHT_ID, logic)
         traci.trafficlight.setProgram(TRAFFIC_LIGHT_ID, logic.programID)
-        traci.trafficlight.setPhase(TRAFFIC_LIGHT_ID, 0)
         
-        # 確保模擬運行足夠長的時間
         MAX_SIM_STEPS = 100000
         step = 0
         while step < MAX_SIM_STEPS and traci.simulation.getMinExpectedNumber() > 0:
             traci.simulationStep()
             step += 1
         
-        # 獲取總延遲
-        try:
-            delay = get_total_delay(unique_tripinfo) 
-            return delay,
-        except Exception as xml_e:
-            print(f"xlm_e error: {xml_e}", flush=True)
-            return (-1,) 
+        delay = get_total_delay(unique_tripinfo) 
+        return delay,
             
-    except traci.TraCIException as e:
-        print(f"traci.TraCIException : {e}", flush=True)
-        return (-1,) 
-    except Exception as e_general:
-        print(f"Exception error: {e_general}", flush=True)
+    except Exception as e:
+        print(f"Error in PID {pid}: {e}", flush=True)
         return (-1,) 
     finally:
         try:
              traci.close()
-             # 模擬結束後刪除臨時 tripinfo 檔案
              if os.path.exists(unique_tripinfo):
                  os.remove(unique_tripinfo)
-        except Exception:
-             pass
+        except: pass
 
 # --- GA 參數設定與初始化 (保持不變) ---
 POP_SIZE = 100
-GEN_NUM = 10000
+GEN_NUM = 100
 TIME_MIN = 5
 TIME_MAX = 100
 
