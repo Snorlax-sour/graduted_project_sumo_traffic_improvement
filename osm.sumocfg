@@ -7,7 +7,7 @@
 
     <input>
         <net-file value="custom_net.net.xml"/>
-        <route-files value="custom_settings.add.xml,custom_car_flow.xml,custom_motorcycle_flow.xml,custom_truck_flow.xml"/>
+        <route-files value="custom_settings.add.xml,custom_car_flow.xml,custom_motorcycle_flow.xml,custom_truck_flow.xml,custom_moped_flow.xml"/>
         <additional-files value="osm.poly.xml.gz,output.add.xml"/>
     </input>
 
