@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<!-- generated on 2026-01-14T10:06:23.150550+08:00 by Eclipse SUMO netedit 1.25.0
+<!-- generated on 2026-01-14T14:29:15.222270+08:00 by Eclipse SUMO netedit 1.25.0
 -->
 
 <routes xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/routes_file.xsd">
     <!-- Vehicles, persons and containers (sorted by depart) -->
-    <flow id="truck1" type="truck" begin="0.00" end="3600.00" period="5" from="-586664246#2" to="-350146688#6"/>
-    <flow id="truck2" type="truck" begin="0.00" end="3600.00" period="5" from="586657908#0" to="586657042#1"/>
-    <flow id="truck4" type="truck" begin="0.00" end="3600.00" period="5" from="1305093055#0" to="-109505207#2"/>
+    <flow id="truck0" type="truck" begin="0.00" end="3600.00" period="3" from="586664246#3" to="-109505208#1.113"/>
+    <flow id="truck1" type="truck" begin="0.00" end="3600.00" period="3" from="-E5" to="-E28"/>
+    <flow id="truck2" type="truck" begin="0.00" end="3600.00" period="3" from="E1" to="890146631#2"/>
 </routes>
