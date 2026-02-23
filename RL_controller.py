@@ -130,7 +130,7 @@ def main():
     # 參數設定
     TRAFFIC_LIGHT_ID = "1253678773"
     SUMO_CONFIG_FILE = "osm.sumocfg"
-    MAX_SIMULATION_STEPS = 25000 
+    MAX_SIMULATION_STEPS = 8000
     MIN_GREEN_TIME = 10 
     
     # 【重構 1：定義新的 Action Space 與偏移量映射】

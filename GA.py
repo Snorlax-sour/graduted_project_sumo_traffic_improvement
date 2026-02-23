@@ -100,7 +100,7 @@ def evaluate(individual):
         conn.trafficlight.setProgramLogic(TRAFFIC_LIGHT_ID, logic)
         conn.trafficlight.setProgram(TRAFFIC_LIGHT_ID, logic.programID)
         
-        MAX_SIM_STEPS = 4500
+        MAX_SIM_STEPS = 8000
         step = 0
         while step < MAX_SIM_STEPS and conn.simulation.getMinExpectedNumber() > 0:
             conn.simulationStep()
