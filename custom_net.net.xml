@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<!-- generated on 2026-02-03T19:59:36.355121+08:00 by Eclipse SUMO netedit 1.25.0
+<!-- generated on 2026-02-23T10:05:38.546279+08:00 by Eclipse SUMO netedit 1.26.0
 <neteditConfiguration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/neteditConfiguration.xsd">
 
     <input>
         <sumocfg-file value="./osm.sumocfg"/>
-        <additional-files value="./osm.poly.xml.gz,./output.add.xml"/>
-        <route-files value="./custom_settings.add.xml,./custom_car_flow.xml,./custom_motorcycle_flow.xml,./custom_truck_flow.xml,./custom_moped_flow.xml"/>
+        <additional-files value="././osm.poly.xml.gz,././output.add.xml"/>
+        <route-files value="././custom_settings.add.xml,././custom_car_flow.xml,././custom_motorcycle_flow.xml,././custom_truck_flow.xml,././custom_moped_flow.xml"/>
         <sumo-net-file value="./custom_net.net.xml"/>
     </input>
 
@@ -2907,7 +2907,7 @@
     <edge id="-E18" from="clusterJ38_J39_J40" to="J31" priority="-1" shape="612.24,195.36 611.77,189.63">
         <lane id="-E18_0" index="0" speed="13.89" length="0.20" shape="610.10,188.81 610.08,188.61"/>
     </edge>
-    <edge id="-E21" from="J35" to="clusterJ18_cluster2225327875_J17_J25_J27_#2more" priority="3" shape="35.51,5.71 41.28,-42.21">
+    <edge id="-E21" from="J35" to="clusterJ18_cluster2225327875_J17_J25_J27_#2more" priority="20" shape="35.51,5.71 41.28,-42.21">
         <lane id="-E21_0" index="0" allow="moped" speed="13.89" length="2.85" shape="33.92,5.52 34.26,2.69"/>
     </edge>
     <edge id="-E24" from="J24" to="J22" priority="-1">
@@ -3954,6 +3954,7 @@
         <phase duration="10" state="yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"/>
         <phase duration="30" state="gggrrrrrrrrrrrrrrrrrrrrrrrrrrggggggggrrrrrrrrrrrrrrrrrrggggg"/>
         <phase duration="10" state="yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"/>
+        <phase duration="10" state="rrrrrrrrrrrrrrGGGGGGrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr"/>
         <phase duration="30" state="ggggggggggggggggggggrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr"/>
         <phase duration="10" state="yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"/>
         <phase duration="30" state="rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrgggggggOrrrrrrrrrrrrrrrrr"/>

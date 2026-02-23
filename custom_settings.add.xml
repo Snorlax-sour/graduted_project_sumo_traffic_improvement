@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<!-- generated on 2026-02-03T19:59:46.034380+08:00 by Eclipse SUMO netedit 1.25.0
+<!-- generated on 2026-02-23T10:38:22.379652+08:00 by Eclipse SUMO netedit 1.26.0
 -->
 
 <routes xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/routes_file.xsd">
@@ -9,5 +9,4 @@
     <vType id="motorcycle" length="1.80" minGap="0.30" maxSpeed="27.78" speedFactor="normc(1.50,0.10,0.20,2.00)" vClass="motorcycle" width="0.80" latAlignment="compact" minGapLat="0.05" lcStrategic="120" lcCooperative="0" lcSpeedGain="15" lcKeepRight="10" lcOpposite="5" lcPushy="1" lcStrategicLookahead="10000" lcCooperativeSpeed="1" lcOvertakeRight="1" lcKeepRightAcceptanceTime="1" lcContRight="1" accel="4.0"/>
     <vType id="passenger" length="5.00" minGap="1.00" maxSpeed="33.33" speedFactor="normc(1.20,0.10,0.20,2.00)" vClass="passenger" width="1.80" latAlignment="left" minGapLat="0.20" lcStrategic="100" lcCooperative="0" lcSpeedGain="10" lcKeepRight="5" lcOpposite="3" lcPushy="0.8" lcStrategicLookahead="5000" lcCooperativeSpeed="1" lcOvertakeRight="1" lcKeepRightAcceptanceTime="1"/>
     <vType id="truck" length="10.00" minGap="2.00" maxSpeed="20.00" vClass="truck" width="2.50" latAlignment="left" lcStrategic="250" lcCooperative="0.8" lcKeepRight="1.0" lcCooperativeSpeed="1"/>
-    <!-- Vehicles, persons and containers (sorted by depart) -->
 </routes>

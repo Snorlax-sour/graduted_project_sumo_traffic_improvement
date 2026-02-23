@@ -31,8 +31,9 @@ class DQNAgent:
 
         # --- 檔案名稱設定 (使用 ID 隔離) ---
         self.instance_id = instance_id
-        self.model_filename = f"model_{self.instance_id}.h5"
-        self.target_model_filename = f"target_model_{self.instance_id}.h5"
+        self.model_filename = f"model_{self.instance_id}.keras" 
+        # Keras 官方現在強烈建議儲存模型時使用 .keras 副檔名，取代舊的 .h5（舊格式在未來的版本可能會一直跳出 Warning）。
+        self.target_model_filename = f"target_model_{self.instance_id}.keras"
 
         # 【修正】: 將模型初始化為 None，延遲建立
         self.model = None
@@ -133,7 +134,7 @@ class DQNAgent:
         # *minibatch: 將 list of tuples 展開
         # map(np.array, zip(...)): 高效地將所有元素打包成獨立的 NumPy 陣列
         states, actions, rewards, next_states, dones = map(np.array, zip(*minibatch))
-
+        dones = dones.astype(int) # <--- 新增這一行：將 Boolean 轉為 0 和 1
         # 2. 【單次呼叫】使用 Target Model 預測所有下一狀態的 Q 值
         # target_q_next 的 shape: (batch_size, action_size)
         target_q_next = self.target_model.predict(next_states, verbose=0)
@@ -176,8 +177,8 @@ class DQNAgent:
             self.replay(batch_size=64)
 
     # --- 【修正點 2：新增儲存模型的方法】---
-    def save_model(self, filename="model_weights.h5"):
-        """將主網路和目標網路模型儲存到帶有唯一 ID 的檔案"""
+    def save_model(self):
+        """強制使用實例 ID 作為檔名，避免實驗結果互相覆蓋"""
         try:
             self.model.save(self.model_filename)
             self.target_model.save(self.target_model_filename)

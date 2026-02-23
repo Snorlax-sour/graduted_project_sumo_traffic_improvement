@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<!-- generated on 2026-02-03T19:59:46.039497+08:00 by Eclipse SUMO sumo 1.25.0
+<!-- generated on 2026-02-23T10:38:28.522915+08:00 by Eclipse SUMO sumo 1.26.0
 -->
 
 <sumoConfiguration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/sumoConfiguration.xsd">
@@ -8,7 +8,7 @@
     <input>
         <net-file value="custom_net.net.xml"/>
         <route-files value="custom_settings.add.xml,custom_car_flow.xml,custom_motorcycle_flow.xml,custom_truck_flow.xml,custom_moped_flow.xml"/>
-        <additional-files value="osm.poly.xml.gz,output.add.xml"/>
+        <additional-files value="osm.poly.xml.gz,output.add.xml,osm.dat.add.xml"/>
     </input>
 
     <output>
