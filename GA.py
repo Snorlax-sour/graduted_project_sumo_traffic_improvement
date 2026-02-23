@@ -168,6 +168,10 @@ def main():
 
     pop = toolbox.population(n=POP_SIZE)
     first_values = 0
+    
+    # 【修復 A：建立名人堂 (Hall of Fame)】
+    # 設定只記憶 1 個歷史表現最好的絕對菁英
+    hof = tools.HallOfFame(1) 
 
     print(f"\n🔁 開始進行 GA 訓練...\n", flush=True)
 
@@ -178,6 +182,10 @@ def main():
         fitnesses = list(executor.map(toolbox.evaluate, pop))
         for ind, fit in zip(pop, fitnesses):
             ind.fitness.values = fit
+            
+        # 【修復 B：更新 Generation 0 到名人堂】
+        hof.update(pop)
+        first_values = hof[0].fitness.values[0] # 記錄初始群體的全局最佳
             
         print(f"✅ Gen 0 初始群體評估完成！\n", flush=True)
 
@@ -204,40 +212,36 @@ def main():
                 ind.fitness.values = fit
 
             pop[:] = offspring
-            best = tools.selBest(pop, 1)[0]
+            
+            # 【修復 C：每一代評估完後，將新群體丟給名人堂檢查】
+            # 如果有比歷史最佳更低的 delay，名人堂會自動更新並覆蓋
+            hof.update(pop)
+            
+            # 【修復 D：提取全局絕對最佳解，而非當代最佳解】
+            global_best = hof[0] 
 
-            if gen == 0:
-                first_values = best.fitness.values[0]
+            print(f"第 {gen+1} 代全局最佳紅綠燈組合：{global_best}, 歷史最小等待時間：{global_best.fitness.values[0]:.2f} 秒",flush=True)
 
-            print(f"第 {gen+1} 代最佳紅綠燈組合：{best}, 等待時間：{best.fitness.values[0]:.2f} 秒",flush=True)
-
-            csv_writer.writerow([gen + 1, best[0], best[1], f"{best.fitness.values[0]:.2f}"])
+            # 寫入歷程檔的，永遠是「截至目前為止」的最小 delay 組合
+            csv_writer.writerow([gen + 1, global_best[0], global_best[1], f"{global_best.fitness.values[0]:.2f}"])
             csv_file.flush()
 
             FINAL_RESULT_FILENAME = "./GA_best_result.csv" 
             try:
+                # 【修復 E：只將全局最佳寫入 final 檔案】
                 with open(FINAL_RESULT_FILENAME, mode="w", newline="", encoding="utf-8") as final_f:
                     final_writer = csv.writer(final_f)
                     final_writer.writerow(["generation", "phase1", "phase2", "delay"])
-                    final_writer.writerow([gen + 1, best[0], best[1], f"{best.fitness.values[0]:.2f}"])
+                    final_writer.writerow([gen + 1, global_best[0], global_best[1], f"{global_best.fitness.values[0]:.2f}"])
             except Exception as e:
                 pass
 
     # 輸出結果
-    final_best = tools.selBest(pop, 1)[0]
+    final_global_best = hof[0]
     print("\n✅ 訓練完成！")
-    print(f"最佳紅綠燈時間組合為：{final_best}")
-    print(f"總等待時間：{final_best.fitness.values[0]:.2f} 秒")
+    print(f"最佳紅綠燈時間組合為：{final_global_best}")
+    print(f"總等待時間：{final_global_best.fitness.values[0]:.2f} 秒")
     print(f"第一代等待時間：{first_values:.2f} 秒")
-
-    try:
-        with open(FINAL_RESULT_FILENAME, mode="w", newline="", encoding="utf-8") as final_f:
-            final_writer = csv.writer(final_f)
-            final_writer.writerow(["generation", "phase1", "phase2", "delay"])
-            final_writer.writerow([GEN_NUM, final_best[0], final_best[1], f"{final_best.fitness.values[0]:.2f}"])
-        print(f"📄 已將最終最佳解寫入固定檔案 {FINAL_RESULT_FILENAME}")
-    except Exception as e:
-        print(f"警告：無法寫入最終 GA 結果檔案: {e}")
 
     try:
         notification.notify(
@@ -246,7 +250,7 @@ def main():
             timeout=10 
         )
     except:
-        pass # 避免因為通知模組沒裝好而中斷
+        pass 
         
     csv_file.close()
     print(f"\n📄 已將所有結果寫入 {filename}")
