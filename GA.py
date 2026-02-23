@@ -100,12 +100,17 @@ def evaluate(individual):
         conn.trafficlight.setProgramLogic(TRAFFIC_LIGHT_ID, logic)
         conn.trafficlight.setProgram(TRAFFIC_LIGHT_ID, logic.programID)
         
-        MAX_SIM_STEPS = 100000
+        MAX_SIM_STEPS = 4500
         step = 0
         while step < MAX_SIM_STEPS and conn.simulation.getMinExpectedNumber() > 0:
             conn.simulationStep()
             step += 1
         
+        # 【修正 2：加入心跳監視器】
+            # 每模擬 500 步就回報一次，讓你知道它沒有死機
+            if step % 500 == 0:
+                print(f"[PID {pid}] 正在執行模擬... 第 {step}/{MAX_SIM_STEPS} 步 (剩餘車輛: {conn.simulation.getMinExpectedNumber()})", flush=True)
+
         # 【修復 2】：非常關鍵！必須先關閉連線，SUMO 才會把 XML 寫完！
         conn.close()
         
