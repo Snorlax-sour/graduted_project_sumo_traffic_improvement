@@ -177,7 +177,7 @@ def main():
 
     # 開啟多核心運算
     with concurrent.futures.ProcessPoolExecutor() as executor:
-        print(f"\n🔁 開始評估初始群體 (Generation 0)，共 {POP_SIZE} 個體 (多核心加速中...)\n" ,flush=True)
+        print(f"\n🔁 開始評估初始群體 (第 0 代)，共 {POP_SIZE} 個體 (多核心加速中...)\n" ,flush=True)
         
         fitnesses = list(executor.map(toolbox.evaluate, pop))
         for ind, fit in zip(pop, fitnesses):
