@@ -134,7 +134,7 @@ def evaluate(individual):
                 pass
 
 # --- GA 參數設定與初始化 ---
-POP_SIZE = 50 # 建議測試時先調小，確認跑得動再改回 100
+POP_SIZE = 100 # 建議測試時先調小，確認跑得動再改回 100
 GEN_NUM = 50
 TIME_MIN = 5
 TIME_MAX = 100
@@ -188,7 +188,9 @@ def main():
         first_values = hof[0].fitness.values[0] # 記錄初始群體的全局最佳
             
         print(f"✅ Gen 0 初始群體評估完成！\n", flush=True)
-
+        PATIENCE = 10  # 耐性值：如果連續 10 代沒進步就停
+        no_improve_count = 0
+        best_fitness_so_far = float('inf')
         for gen in range(GEN_NUM):
             offspring = toolbox.select(pop, len(pop))
             offspring = list(map(toolbox.clone, offspring))
@@ -199,7 +201,7 @@ def main():
                     del child1.fitness.values
                     del child2.fitness.values
             for mutant in offspring:
-                if random.random() < 0.9:
+                if random.random() < 0.2:
                     toolbox.mutate(mutant)
                     del mutant.fitness.values
 
@@ -221,7 +223,21 @@ def main():
             global_best = hof[0] 
 
             print(f"第 {gen+1} 代全局最佳紅綠燈組合：{global_best}, 歷史最小等待時間：{global_best.fitness.values[0]:.2f} 秒",flush=True)
+            # 檢查是否有進步
+            current_best_fit = hof[0].fitness.values[0]
+            
+            if current_best_fit < best_fitness_so_far:
+                best_fitness_so_far = current_best_fit
+                no_improve_count = 0  # 有進步，計數重置
+            else:
+                no_improve_count += 1 # 沒進步，耐性扣點
+                
+            print(f"第 {gen+1} 代，連續未進步：{no_improve_count}/{PATIENCE}")
 
+            # 觸發提前停止
+            if no_improve_count >= PATIENCE:
+                print(f" [!] 偵測到演算法已收斂，提前停止於第 {gen+1} 代。")
+                break
             # 寫入歷程檔的，永遠是「截至目前為止」的最小 delay 組合
             csv_writer.writerow([gen + 1, global_best[0], global_best[1], f"{global_best.fitness.values[0]:.2f}"])
             csv_file.flush()
