@@ -147,4 +147,4 @@ def plot_log_data(log_file):
 
 if __name__ == '__main__':
     # 請將此處換成你想分析的完整 log 檔名
-    plot_log_data("execute_RL_20260225_1238.txt")
+    plot_log_data("execute_RL_202602251309.txt")
