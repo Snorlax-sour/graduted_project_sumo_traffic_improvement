@@ -214,6 +214,9 @@ class DQNAgent:
                 custom_objects=custom_objects, # <--- 修正點
                 compile=True # 確保模型載入後是可用的
                 )
+            # 【修復】：載入後，強制重新接上梯度計算圖！
+            self.model.compile(loss='mse', optimizer=Adam(learning_rate=self.learning_rate))
+            self.target_model.compile(loss='mse', optimizer=Adam(learning_rate=self.learning_rate))
             self.update_target_model() # 載入後同步權重
             
             # 載入模型後，將探索率降到最低

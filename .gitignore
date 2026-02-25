@@ -2,5 +2,6 @@
 venv/
 *.png
 *.csv
+!GA_best_result.csv
 .ssh
 

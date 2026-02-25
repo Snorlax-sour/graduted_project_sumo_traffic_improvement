@@ -60,7 +60,8 @@ def evaluate(individual):
         "--lateral-resolution", "0.05",
         "--tripinfo-output", unique_tripinfo,
         "--no-warnings", "true", # 減少控制台的噪音
-        "--no-step-log", "true"
+        "--no-step-log", "true",
+        "--collision.mingap-factor", "0" # 【新增】放寬碰撞判定，允許極限貼車鑽縫
     ]
 
     try:
