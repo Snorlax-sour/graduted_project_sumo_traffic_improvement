@@ -255,12 +255,25 @@ def main():
     last_phase = -1                   # 用於計算週期切換
     # 這裡建立日誌標籤
     mode_label = "[TRAIN]" if is_train_mode else "[TEST]"
+    empty_step_counter = 0
+    STOP_THRESHOLD = 10  # 連續 10 秒沒車才結束
     while step < MAX_SIMULATION_STEPS:
         try:
             
-                
+            # 1. 執行模擬步進
+            traci.simulationStep()
+            step += 1
+            time_in_current_phase += 1
+            # 2. 【核心修正】強健的提早結束判斷
+            # getMinExpectedNumber <= 0 代表地圖沒車且未來也沒車要進場
+            if traci.simulation.getMinExpectedNumber() <= 0:
+                empty_step_counter += 1
+                if empty_step_counter >= STOP_THRESHOLD:
+                    print(f"\n🏁 所有車輛已離開，模擬於第 {step} 秒提早結束。", flush=True)
+                    break
+            else:
+                empty_step_counter = 0  # 只要有車，重置計數器
             current_phase = traci.trafficlight.getPhase(TRAFFIC_LIGHT_ID)
-            
             # 【機制 1】：週期計算 (當相位從最後一個切回 0 時，算作一個完整週期)
             if current_phase == 0 and last_phase != 0 and last_phase != -1:
                 if control_mode == "GA":
@@ -373,13 +386,7 @@ def main():
                                 traci.trafficlight.setPhase(TRAFFIC_LIGHT_ID, (current_phase + 1) % num_phases)
                                 time_in_current_phase = -1 # 重置計時器
 
-            # 步進模擬
-            traci.simulationStep()
-            step += 1
-            time_in_current_phase += 1 
-            if traci.simulation.getMinExpectedNumber() <= 0:
-                print("所有車輛已離開模擬，提前結束。")
-                break
+            
             # # 當前相位結束
             # if time_in_current_phase >= target_phase_duration:
             #     if current_phase % 2 == 0 and last_state is not None:
