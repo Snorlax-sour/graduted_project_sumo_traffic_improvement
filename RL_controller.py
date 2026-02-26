@@ -367,7 +367,7 @@ def main():
                             # 【修正 1】：不管是不是訓練模式，都把這 5 秒的結果印出來！
                             # print(f"🤖 [RL] 時間: {step}s | 綠燈已亮: {time_in_current_phase}s | 5秒獎勵: {reward:.2f} | 掉分: {display_drop}/20 | 狀態: '{phase_state}'", flush=True)
                             # 【修正輸出】：加上 mode_label
-                            print(f"{mode_label} 🤖 [RL] 時間: {step}s | 綠燈: {time_in_current_phase}s | 5秒獎勵: {reward:.2f} | 掉分: {display_drop}/20 | 狀態: '{phase_state}'", flush=True)
+                            print(f"{mode_label} 🤖 [RL] 時間: {step}s | 綠燈: {time_in_current_phase}s | 5秒獎勵: {reward:.2f} | 掉分: {display_drop}/20 | Epsilon: {agent.exploration_rate:.3f} | 狀態: '{phase_state}'", flush=True)
                             # 只有在訓練模式，才把結果送給大腦學習
                             if is_train_mode:
                                 agent.learn(last_state, 0, reward, current_state) 
@@ -404,7 +404,7 @@ def main():
                         cumulative_reward += reward
                         
                         phase_state = traci.trafficlight.getRedYellowGreenState(TRAFFIC_LIGHT_ID)
-                        print(f"{mode_label} 🧬 [GA] 時間: {step}s | 綠燈: {time_in_current_phase}s / {ga_dur}s | 5秒獎勵: {reward:.2f} | 正在執行 GA 疏導...", flush=True)
+                        print(f"{mode_label} 🧬 [GA] 時間: {step}s | 綠燈: {time_in_current_phase}s / {ga_dur}s | 5秒獎勵: {reward:.2f} | 掉分: {continuous_reward_drop}/20 | Epsilon: {agent.exploration_rate:.3f} | 狀態: '{phase_state}'", flush=True)
 
                         # 【核心修復】：GA 過去 5 秒都沒有切換，等於執行了 Action 0 (保持綠燈)
                         if is_train_mode and last_state is not None:
