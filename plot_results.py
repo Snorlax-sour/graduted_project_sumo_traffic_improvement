@@ -6,7 +6,7 @@ import numpy as np
 
 def plot_log_data(log_file):
     """
-    讀取日誌，列出所有 GA 觸發點，並將報告（含顏色解釋）寫入 TXT 檔案。
+    讀取日誌，列出所有 GA 觸發點，並將報告（含完整顏色與線條解釋）寫入 TXT 檔案。
     """
     steps, rewards, drops = [], [], []
     ga_jam_periods, ga_penalty_periods = [], []
@@ -62,7 +62,7 @@ def plot_log_data(log_file):
             return
 
         # ==========================================
-        # 建立報告文字內容（含顏色解釋與模式標註）
+        # 建立報告文字內容（擴充橘線與紅線的解釋）
         # ==========================================
         mode_str = "測試模式 (TEST)" if is_test_mode else "訓練模式 (TRAIN)"
         report_lines = [
@@ -70,9 +70,13 @@ def plot_log_data(log_file):
             f"📊 混合控制詳細分析報告 - {mode_str}",
             f"📝 原始日誌: {log_file}",
             "="*60,
-            "\n🎨 【顏色代表意義說明】:",
-            "  ● 紫色區域 (Purple)：GA 接管 - 偵測到下游交通癱瘓 (Downstream Jam)",
-            "  ● 灰色區域 (Gray)  ：GA 接管 - RL 連續 20 次決策錯誤 (Penalty Drops)",
+            "\n🎨 【圖表視覺代表意義說明】:",
+            "  [背景色塊 - GA 安全接管機制]",
+            "  ● 紫色區域 (Purple)：偵測到下游交通癱瘓 (Downstream Jam)",
+            "  ● 灰色區域 (Gray)  ：RL 連續 20 次決策錯誤 (Penalty Drops)",
+            "  [線條指標 - RL 健康度監控]",
+            "  ● 橘色折線 (Orange)：RL 連續獲得負獎勵的累計次數 (Penalty Count)",
+            "  ● 紅色虛線 (Red Dash)：強制觸發 GA 接管的掉分容忍門檻 (Threshold=20)",
             "\n" + "-"*60
         ]
         
@@ -119,8 +123,8 @@ def plot_log_data(log_file):
             mv = np.convolve(rewards, np.ones(20), 'valid') / 20
             ax1.plot(steps[19:], mv, label='20-Step Moving Average', color='red', linewidth=2)
         
-        ax2.plot(steps, drops, label='Penalty Count (Drops)', color='orange')
-        ax2.axhline(y=20, color='red', linestyle='--', label='GA Threshold (20)')
+        ax2.plot(steps, drops, label='Consecutive Penalty (Drops)', color='orange')
+        ax2.axhline(y=20, color='red', linestyle='--', label='GA Override Threshold (20)')
         
         # 繪製背景色塊與圖例
         jam_label, pen_label = False, False
@@ -135,16 +139,21 @@ def plot_log_data(log_file):
 
         ax1.legend(loc='upper right')
         ax1.grid(True)
+        
+        # 【修復重點】：這裡補上了下半部圖表的圖例顯示！
+        ax2.legend(loc='upper right')
         ax2.grid(True)
+        
         plt.tight_layout()
         
         prefix = "test" if is_test_mode else "train"
-        plt.savefig(f'{prefix}_result_{log_file.replace(".txt", "")}.png')
-        print(f"📈 圖表已儲存為 PNG 檔。  {prefix}_result_{log_file.replace(".txt", "")}.png")
+        save_name = f'{prefix}_result_{log_file.replace(".txt", "")}.png'
+        plt.savefig(save_name)
+        print(f"📈 圖表已儲存為 PNG 檔: {save_name}")
 
     except Exception as e:
         print(f"❌ 發生錯誤: {e}")
 
 if __name__ == '__main__':
-    # 請將此處換成你想分析的完整 log 檔名
-    plot_log_data("execute_RL_202602251309.txt")
+    # 記得換成你最新的 log 檔名
+    plot_log_data("execute_RL_20260226_1321.txt")

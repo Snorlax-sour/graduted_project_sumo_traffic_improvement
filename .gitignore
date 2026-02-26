@@ -4,4 +4,4 @@ venv/
 *.csv
 !GA_best_result.csv
 .ssh
-
+!requirement.txt

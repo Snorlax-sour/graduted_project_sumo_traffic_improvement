@@ -274,6 +274,14 @@ def main():
             else:
                 empty_step_counter = 0  # 只要有車，重置計數器
             current_phase = traci.trafficlight.getPhase(TRAFFIC_LIGHT_ID)
+            # 👇👇👇 請在這裡加上這三行 👇👇👇
+            # 👑 【核心修復】：奪取 SUMO 預設控制權！
+            # 如果現在是綠燈的第一秒，強制把 SUMO 的預設倒數計時設為 10000 秒
+            # 這樣 SUMO 就不會因為預設的 31 秒到了而擅自切換燈號！
+            # SUMO 的預設計時器正在跟你的 AI 搶奪控制權！
+            if current_phase % 2 == 0 and time_in_current_phase == 0:
+                traci.trafficlight.setPhaseDuration(TRAFFIC_LIGHT_ID, 10000)
+            # 👆👆👆 加上這三行 👆👆👆
             # 【機制 1】：週期計算 (當相位從最後一個切回 0 時，算作一個完整週期)
             if current_phase == 0 and last_phase != 0 and last_phase != -1:
                 if control_mode == "GA":
@@ -385,7 +393,49 @@ def main():
                                     
                                 traci.trafficlight.setPhase(TRAFFIC_LIGHT_ID, (current_phase + 1) % num_phases)
                                 time_in_current_phase = -1 # 重置計時器
+                # 🟣 【GA 控制模式】(讓 RL 在旁邊模仿學習)
+                elif control_mode == "GA":
+                    ga_dur = GA_OPTIMAL_PHASES[0] if current_phase == 0 else GA_OPTIMAL_PHASES[1]
+                    
+                    # 1. 模仿學習：每 5 秒結算一次 GA 的表現，並餵給 RL
+                    if time_in_current_phase > 0 and time_in_current_phase % ACTION_INTERVAL == 0:
+                        current_state = get_state(TRAFFIC_LIGHT_ID)
+                        reward, current_total_queue_length = calculate_reward(TRAFFIC_LIGHT_ID)
+                        cumulative_reward += reward
+                        
+                        phase_state = traci.trafficlight.getRedYellowGreenState(TRAFFIC_LIGHT_ID)
+                        print(f"{mode_label} 🧬 [GA] 時間: {step}s | 綠燈: {time_in_current_phase}s / {ga_dur}s | 5秒獎勵: {reward:.2f} | 正在執行 GA 疏導...", flush=True)
 
+                        # 【核心修復】：GA 過去 5 秒都沒有切換，等於執行了 Action 0 (保持綠燈)
+                        if is_train_mode and last_state is not None:
+                            agent.learn(last_state, 0, reward, current_state)
+                            
+                        last_state = current_state
+
+                    # 2. GA 決定切換燈號
+                    if time_in_current_phase >= ga_dur:
+                        print(f"⚡ [GA] 達到最佳秒數 {ga_dur}s，切換紅綠燈！", flush=True)
+                        
+                        # 【核心修復】：GA 決定切換，等於執行了 Action 1 (切換燈號)
+                        if is_train_mode and last_state is not None:
+                            current_state = get_state(TRAFFIC_LIGHT_ID)
+                            agent.learn(last_state, 1, 0, current_state)
+                            
+                        traci.trafficlight.setPhase(TRAFFIC_LIGHT_ID, (current_phase + 1) % num_phases)
+                        time_in_current_phase = -1
+                        last_state = None # 重置狀態
+
+            # ==========================================
+            # 黃燈 / 紅燈 過渡階段 (這部分你也漏掉了)
+            # ==========================================
+            else:
+                # 取得 SUMO 預先設定好的黃燈/紅燈秒數
+                target_phase_duration = traci.trafficlight.getPhaseDuration(TRAFFIC_LIGHT_ID)
+                
+                # 黃/紅燈時間到了，就切換到下一個綠燈相位
+                if time_in_current_phase >= target_phase_duration:
+                    traci.trafficlight.setPhase(TRAFFIC_LIGHT_ID, (current_phase + 1) % num_phases)
+                    time_in_current_phase = -1
             
             # # 當前相位結束
             # if time_in_current_phase >= target_phase_duration:
