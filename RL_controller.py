@@ -73,12 +73,24 @@ def calculate_reward(tls_id):
         delta_delay = last_total_waiting_time - current_total_waiting_time
         delta_delay *= -1
         current_total_queue_length  = get_total_queue_length(tls_id)
+        # 1. 基礎懲罰：只要有車在等，每秒都在掉分 (絕對值)
+        penalty_waiting = current_total_waiting_time * 0.1 
+
+        # 2. 隊列懲罰：排隊越長，懲罰指數級增加
+        # 使用平方是正確的，但 beta 可能要調大
+        penalty_queue = 0.5 * (current_total_queue_length ** 2)
+
+        # 3. 變化量懲罰：如果這 5 秒內等待時間增加了，額外扣分
+        delta_delay = current_total_waiting_time - last_total_waiting_time
+        penalty_delta = max(0, delta_delay) * 2.0
+
+        # 總獎勵 (全部都是負值，目標是趨近於 0)
+        reward = -(penalty_waiting + penalty_queue + penalty_delta)
+
         last_total_waiting_time = current_total_waiting_time
-        beta = 0.2 
-        reward =  delta_delay - (beta * (current_total_queue_length ** 2))
         return reward, current_total_waiting_time
             
-    except traci.TraCIException:
+    except traci.TraCIException:  
         return 0.0, 0.0 
     except AttributeError as e:
         return calculate_reward_queue_fallback(tls_id)
@@ -119,18 +131,25 @@ def check_downstream_jam(tls_id, jam_threshold=0.9):
     如果平均佔有率超過 80% (0.8)，回傳 True
     """
     try:
-        links = traci.trafficlight.getControlledLinks(tls_id)
-        # 提取所有離開這個路口的下游車道
-        outgoing_lanes = set([link[0][1] for link in links if link])
+        # 1. 取得所有受控的進入車道 (上游)
+        upstream_lanes = set(traci.trafficlight.getControlledLanes(tls_id))
         
-        is_jammed = False
-        for lane in outgoing_lanes:
-            # 取得車道的空間佔有率 (0.0 ~ 1.0)
-            occupancy = traci.lane.getLastStepOccupancy(lane)
-            if occupancy >= jam_threshold:
-                is_jammed = True
-                break
-        return is_jammed
+        # 2. 取得路口所有的連結關係
+        links = traci.trafficlight.getControlledLinks(tls_id)
+        
+        actual_downstream_lanes = set()
+        for signal_group in links:
+            for conn in signal_group:
+                down_lane = conn[1] # 指向離開路口的方向
+                # 確保這個下游車道「不屬於」目前路口的進入車道
+                if down_lane not in upstream_lanes:
+                    actual_downstream_lanes.add(down_lane)
+        
+        # 3. 檢查這些「真正離開路口」的車道
+        for lane in actual_downstream_lanes:
+            if traci.lane.getLastStepOccupancy(lane) > jam_threshold:
+                return True # 真的下游塞車了
+        return False
     except Exception as e:
         print(f"下游壅塞偵測錯誤: {e}")
         return False
