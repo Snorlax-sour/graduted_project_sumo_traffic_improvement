@@ -47,6 +47,7 @@ def get_total_delay(filename):
     return total_waiting_time
 
 def evaluate(individual):
+    active_crashes = {} # 記錄真車禍的車輛 ID 與剩餘罰站時間
     pid = os.getpid()
     # 【修復 1】：加入 uuid，確保就算同一個 Worker 處理，檔案名稱也絕對不重複
     run_id = uuid.uuid4().hex[:6] 
@@ -61,7 +62,8 @@ def evaluate(individual):
         "--tripinfo-output", unique_tripinfo,
         "--no-warnings", "true", # 減少控制台的噪音
         "--no-step-log", "true",
-        "--collision.mingap-factor", "0" # 【新增】放寬碰撞判定，允許極限貼車鑽縫
+        "--collision.mingap-factor", "0", # 【新增】放寬碰撞判定，允許極限貼車鑽縫，前後方向
+        "--collision.action", "none", #讓SUMO無視碰撞 (車子的框框互相碰到了) ，而程式處理，是真碰撞還是假碰撞
     ]
 
     try:
@@ -100,13 +102,54 @@ def evaluate(individual):
         
         conn.trafficlight.setProgramLogic(TRAFFIC_LIGHT_ID, logic)
         conn.trafficlight.setProgram(TRAFFIC_LIGHT_ID, logic.programID)
-        
+        total_deadlock_penalty = 0.0 # 👑 新增：紀錄死鎖造成的延遲懲罰
         MAX_SIM_STEPS = 8000
         step = 0
         while step < MAX_SIM_STEPS and conn.simulation.getMinExpectedNumber() > 0:
             conn.simulationStep()
             step += 1
-        
+            # 👇👇👇 智能裁判邏輯 👇👇👇
+            # 🚨 極度重要：這裡全部改用 conn.，不能用 traci.！
+            collisions = conn.simulation.getCollisions()
+            for coll in collisions:
+                v1, v2 = coll.collider, coll.victim
+                if v1 not in active_crashes and v2 not in active_crashes:
+                    try:
+                        angle1 = conn.vehicle.getAngle(v1)
+                        angle2 = conn.vehicle.getAngle(v2)
+                        angle_diff = abs(angle1 - angle2) % 360
+                        if angle_diff > 180: 
+                            angle_diff = 360 - angle_diff
+                        
+                        if angle_diff > 45 or coll.lane.startswith(':'):
+                            active_crashes[v1] = 60 
+                            active_crashes[v2] = 60
+                    except traci.TraCIException:
+                        pass 
+
+            # 執行物理路障
+            for v in list(active_crashes.keys()):
+                active_crashes[v] -= 1
+                try:
+                    if active_crashes[v] <= 0:
+                        conn.vehicle.setSpeed(v, -1) 
+                        del active_crashes[v]
+                    else:
+                        conn.vehicle.setSpeed(v, 0) 
+                except traci.TraCIException:
+                    del active_crashes[v]
+            # 👆👆👆 智能裁判邏輯結束 👆👆👆
+
+            # 👇👇👇 🚑 救災防死鎖與計算罰款 👇👇👇
+            # 同樣全部使用 conn. 來操作
+            for v_id in conn.vehicle.getIDList():
+                if conn.vehicle.getSpeed(v_id) < 0.1:
+                    if conn.vehicle.getWaitingTime(v_id) > 90:
+                        conn.vehicle.remove(v_id) # 移出死鎖車輛
+                        # 💣 因為 GA 是要找「等待時間最少」的，所以懲罰是加上去！
+                        # 一台車死鎖，我們就給這個基因組合「增加 500 秒」的等待時間！
+                        total_deadlock_penalty += 500.0 
+            # 👆👆👆 救災邏輯結束 👆👆👆
         # 【修正 2：加入心跳監視器】
             # 每模擬 500 步就回報一次，讓你知道它沒有死機
             if step % 500 == 0:
@@ -220,10 +263,13 @@ def main():
             # 如果有比歷史最佳更低的 delay，名人堂會自動更新並覆蓋
             hof.update(pop)
             
-            # 【修復 D：提取全局絕對最佳解，而非當代最佳解】
-            global_best = hof[0] 
+            # 👑 【新增】提取「當代最佳解」與「全局歷史最佳解」
+            current_gen_best = tools.selBest(pop, k=1)[0] # 當代 100 個體中最好的一個
+            global_best = hof[0]                          # 歷史以來最好的一個
 
-            print(f"第 {gen+1} 代全局最佳紅綠燈組合：{global_best}, 歷史最小等待時間：{global_best.fitness.values[0]:.2f} 秒",flush=True)
+            print(f"第 {gen+1} 代 當代最佳組合：{current_gen_best}, 等待時間：{current_gen_best.fitness.values[0]:.2f} 秒", flush=True)
+            print(f"第 {gen+1} 代 歷史最佳組合：{global_best}, 最小等待時間：{global_best.fitness.values[0]:.2f} 秒", flush=True)
+
             # 檢查是否有進步
             current_best_fit = hof[0].fitness.values[0]
             
@@ -239,13 +285,15 @@ def main():
             if no_improve_count >= PATIENCE:
                 print(f" [!] 偵測到演算法已收斂，提前停止於第 {gen+1} 代。")
                 break
-            # 寫入歷程檔的，永遠是「截至目前為止」的最小 delay 組合
-            csv_writer.writerow([gen + 1, global_best[0], global_best[1], f"{global_best.fitness.values[0]:.2f}"])
-            csv_file.flush()
+           
 
             FINAL_RESULT_FILENAME = "./GA_best_result.csv" 
+            # 📝 【修改 1】：寫入歷程檔的，永遠是「當代」的最佳組合與延遲
+            csv_writer.writerow([gen + 1, current_gen_best[0], current_gen_best[1], f"{current_gen_best.fitness.values[0]:.2f}"])
+            csv_file.flush()
+
             try:
-                # 【修復 E：只將全局最佳寫入 final 檔案】
+                # 📝 【修改 2】：寫入 GA_best_result.csv 的，永遠是「全局歷史 (HOF)」的最佳解
                 with open(FINAL_RESULT_FILENAME, mode="w", newline="", encoding="utf-8") as final_f:
                     final_writer = csv.writer(final_f)
                     final_writer.writerow(["generation", "phase1", "phase2", "delay"])

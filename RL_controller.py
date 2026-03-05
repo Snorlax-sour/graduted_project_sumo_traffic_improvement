@@ -189,6 +189,7 @@ def parse_arguments():
     return mode, instance_id
 
 def main():
+    active_crashes = {} # 記錄真車禍的車輛 ID 與剩餘罰站時間
     mode, instance_id = parse_arguments()
     is_train_mode = (mode == 'train')
     # --- 新增：模式標題列印 ---
@@ -208,7 +209,7 @@ def main():
     SUMO_CONFIG_FILE = "osm.sumocfg"
     MAX_SIMULATION_STEPS = 8000
     MIN_GREEN_TIME = 10 
-    ACTION_INTERVAL = 5 # 【重構重點】每 5 秒讓 RL 決策一次
+    ACTION_INTERVAL = 10 # 【重構重點】每 10 秒讓 RL 決策一次，為了符合最短紅綠燈時間
     
     # 【重構 1：定義新的 Action Space 與偏移量映射】
     # 動作 0 -> -5 秒
@@ -249,7 +250,9 @@ def main():
         "--tripinfo-output", f"tripinfo_RL_{instance_id}.xml",
         "--seed", str(sim_seed),
         "--lateral-resolution", "0.05" ,
-        "--collision.mingap-factor", "0" # 【新增】放寬碰撞判定，允許極限貼車鑽縫
+        "--collision.mingap-factor", "0", # 【新增】放寬碰撞判定，允許極限貼車鑽縫，前後方向，但是假碰撞是左右
+        "--collision.action", "none",
+        
     ]
     traci.start(sumoCmd)
     
@@ -292,6 +295,71 @@ def main():
                     break
             else:
                 empty_step_counter = 0  # 只要有車，重置計數器
+                # 👇👇👇 從這裡開始插入智能裁判邏輯 👇👇👇
+            collisions = traci.simulation.getCollisions()
+            for coll in collisions:
+                v1, v2 = coll.collider, coll.victim
+                # 如果這兩台車還沒被標記為車禍狀態
+                if v1 not in active_crashes and v2 not in active_crashes:
+                    try:
+                        # 取得兩車的行駛角度來判斷是不是「攔腰撞上」
+                        angle1 = traci.vehicle.getAngle(v1)
+                        angle2 = traci.vehicle.getAngle(v2)
+                        angle_diff = abs(angle1 - angle2) % 360
+                        if angle_diff > 180: 
+                            angle_diff = 360 - angle_diff
+                        
+                        # 【判定條件】：
+                        # 1. 角度差 > 45度 (通常是十字路口的 T 型或側向碰撞)
+                        # 2. 或者發生在路口內部 (SUMO 的路口車道 ID 必定以 ':' 開頭)
+                        if angle_diff > 45 or coll.lane.startswith(':'):
+                            print(f"💥 [真車禍] {v1} 與 {v2} 發生嚴重碰撞！封鎖道路 60 秒！")
+                            active_crashes[v1] = 60 # 設定罰站 60 步 (秒)
+                            active_crashes[v2] = 60
+                        else:
+                            # 假車禍 (同向擦撞，或次車道模型產生的側撞)
+                            # 什麼都不做，因為 --collision.action none 會讓它們無損穿過
+                            pass
+                    except traci.TraCIException:
+                        pass # 忽略已離開地圖的車輛錯誤
+            # 執行真車禍的「物理路障」懲罰
+            for v in list(active_crashes.keys()):
+                active_crashes[v] -= 1
+                try:
+                    if active_crashes[v] <= 0:
+                        # 罰站時間結束，將速度控制權還給 SUMO，讓車子開走
+                        traci.vehicle.setSpeed(v, -1) 
+                        del active_crashes[v]
+                        print(f"🧹 [車禍排除] 車輛 {v} 已移出事故現場。")
+                    else:
+                        # 強制車速為 0，這台車會變成路中央一塊實體的石頭，後面的車會被塞住！
+                        traci.vehicle.setSpeed(v, 0) 
+                except traci.TraCIException:
+                    # 如果車輛已經被系統移除，就從追蹤清單中刪除
+                    del active_crashes[v]
+            # 👆👆👆 智能裁判邏輯結束 👆👆👆
+
+            # ==========================================
+            # 🚑 救災腳本 (帶有防弊懲罰機制)
+            # ==========================================
+            deadlock_penalty = 0
+            vehicles = traci.vehicle.getIDList()
+            for v_id in vehicles:
+                # 只針對汽車，且速度為 0，且卡住超過 90 秒
+                if traci.vehicle.getSpeed(v_id) < 0.1:
+                    waiting_time = traci.vehicle.getWaitingTime(v_id)
+                    if waiting_time > 90:
+                        print(f"🚨 [救災介入] 車輛 {v_id} 死鎖超過 90 秒，強制移出路口！")
+                        
+                        # 1. 執行瞬移 (把你之前的 moveToVTD 邏輯放進來，或者直接 remove)
+                        # traci.vehicle.moveToVTD(v_id, edge_id, lane_pos) 
+                        traci.vehicle.remove(v_id) # 或者最簡單暴力的直接移除
+                        
+                        # 2. 💣 給予巨大的懲罰 (讓 RL 痛，但遊戲繼續)
+                        deadlock_penalty -= 500
+                if time_in_current_phase >= target_phase_duration:
+                    traci.trafficlight.setPhase(TRAFFIC_LIGHT_ID, (current_phase + 1) % num_phases)
+                    time_in_current_phase = -1
             current_phase = traci.trafficlight.getPhase(TRAFFIC_LIGHT_ID)
             # 👇👇👇 請在這裡加上這三行 👇👇👇
             # 👑 【核心修復】：奪取 SUMO 預設控制權！
@@ -450,8 +518,8 @@ def main():
             else:
                 # 取得 SUMO 預先設定好的黃燈/紅燈秒數
                 target_phase_duration = traci.trafficlight.getPhaseDuration(TRAFFIC_LIGHT_ID)
-                
                 # 黃/紅燈時間到了，就切換到下一個綠燈相位
+                # ==========================================
                 if time_in_current_phase >= target_phase_duration:
                     traci.trafficlight.setPhase(TRAFFIC_LIGHT_ID, (current_phase + 1) % num_phases)
                     time_in_current_phase = -1

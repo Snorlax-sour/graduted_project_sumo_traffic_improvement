@@ -171,4 +171,4 @@ def plot_log_data(log_file):
 
 if __name__ == '__main__':
     # 記得替換成最新的日誌檔名
-    plot_log_data("execute_RL_20260226_1403.txt")
+    plot_log_data("execute_RL_20260303_1645.txt")
