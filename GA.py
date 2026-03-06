@@ -160,7 +160,7 @@ def evaluate(individual):
         
         # 【修復 3】：確定關閉後，才去讀取 XML
         delay = get_total_delay(unique_tripinfo) 
-        return delay,
+        return delay + total_deadlock_penalty,
             
     except Exception as e:
         print(f"Error in PID {pid}: {e}", flush=True)
@@ -265,6 +265,9 @@ def main():
             
             # 👑 【新增】提取「當代最佳解」與「全局歷史最佳解」
             current_gen_best = tools.selBest(pop, k=1)[0] # 當代 100 個體中最好的一個
+            # 先寫入第 0 代
+            csv_writer.writerow([0, current_gen_best[0], current_gen_best[1], f"{current_gen_best.fitness.values[0]:.2f}"])
+            csv_file.flush()
             global_best = hof[0]                          # 歷史以來最好的一個
 
             print(f"第 {gen+1} 代 當代最佳組合：{current_gen_best}, 等待時間：{current_gen_best.fitness.values[0]:.2f} 秒", flush=True)
