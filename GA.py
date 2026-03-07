@@ -208,7 +208,7 @@ def main():
 
     csv_file = open(file=filename, mode="w", newline="", encoding="utf-8")
     csv_writer = csv.writer(csv_file)
-    csv_writer.writerow(["generation", "phase1", "phase2", "delay"])
+    csv_writer.writerow(["generation", "phase1", "phase2", "delay", "os_pid"])
 
     pop = toolbox.population(n=POP_SIZE)
     first_values = 0
@@ -265,8 +265,7 @@ def main():
             
             # 👑 【新增】提取「當代最佳解」與「全局歷史最佳解」
             current_gen_best = tools.selBest(pop, k=1)[0] # 當代 100 個體中最好的一個
-            # 先寫入第 0 代
-            csv_writer.writerow([0, current_gen_best[0], current_gen_best[1], f"{current_gen_best.fitness.values[0]:.2f}"])
+            
             csv_file.flush()
             global_best = hof[0]                          # 歷史以來最好的一個
 
@@ -299,8 +298,8 @@ def main():
                 # 📝 【修改 2】：寫入 GA_best_result.csv 的，永遠是「全局歷史 (HOF)」的最佳解
                 with open(FINAL_RESULT_FILENAME, mode="w", newline="", encoding="utf-8") as final_f:
                     final_writer = csv.writer(final_f)
-                    final_writer.writerow(["generation", "phase1", "phase2", "delay"])
-                    final_writer.writerow([gen + 1, global_best[0], global_best[1], f"{global_best.fitness.values[0]:.2f}"])
+                    final_writer.writerow(["generation", "phase1", "phase2", "delay", "os_pid"])
+                    final_writer.writerow([gen + 1, global_best[0], global_best[1], f"{global_best.fitness.values[0]:.2f}", f"{os.getpid()}"])
             except Exception as e:
                 pass
 
