@@ -291,7 +291,7 @@ def main():
 
             FINAL_RESULT_FILENAME = "./GA_best_result.csv" 
             # 📝 【修改 1】：寫入歷程檔的，永遠是「當代」的最佳組合與延遲
-            csv_writer.writerow([gen + 1, current_gen_best[0], current_gen_best[1], f"{current_gen_best.fitness.values[0]:.2f}"])
+            csv_writer.writerow([gen + 1, current_gen_best[0], current_gen_best[1], f"{current_gen_best.fitness.values[0]:.2f}", f"{os.getpid()}"])
             csv_file.flush()
 
             try:
