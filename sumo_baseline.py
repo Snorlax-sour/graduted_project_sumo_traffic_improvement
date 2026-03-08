@@ -115,21 +115,36 @@ def main():
     traci.start(sumoCmd)
     # 👑 【精確版】：抓取並印出 SUMO 地圖預設的每一個紅綠燈相位狀態
     try:
-        all_logics = traci.trafficlight.getAllProgramLogics(TRAFFIC_LIGHT_ID)
-        if all_logics:
+        # 取得地圖上「所有」紅綠燈的 ID，這樣多路口也能用！
+        tls_ids = traci.trafficlight.getIDList()
+        
+        for tls_id in tls_ids:
+            all_logics = traci.trafficlight.getAllProgramLogics(tls_id)
+            if not all_logics:
+                continue
+                
             default_logic = all_logics[0]
-            print(f"🚥 [地圖預設資訊] 讀取到原始紅綠燈配置 (Program ID: '{default_logic.programID}')：")
             
-            for i, p in enumerate(default_logic.phases):
-                # 判斷這個相位是綠燈階段還是黃/紅燈過渡階段
-                if 'G' in p.state or 'g' in p.state:
-                    phase_type = "🟢 綠燈階段"
-                elif 'y' in p.state or 'Y' in p.state:
-                    phase_type = "🟡 黃燈過渡"
-                else:
-                    phase_type = "🔴 全紅淨空"
-                    
-                print(f"   👉 相位 {i} ({phase_type}): {p.duration:4.1f} 秒 | 狀態: '{p.state}'")
+            # 如果這個紅綠燈本來就是靜態的 (type=0)，就不動它
+            if default_logic.type == 0:
+                print(f"🚥 [{tls_id}] 已經是靜態 (Static) 模式。")
+                continue
+                
+            print(f"⚠️ [{tls_id}] 偵測到動態/感應式模式 (Type={default_logic.type})，正在強制降級為靜態 (Static)...")
+            
+            # 建立一個新的 Logic，把所有的屬性（包括所有的相位和原本的秒數）都拷貝過來
+            # 唯一的改變是：強制把 type 設為 0 (Static)
+            static_logic = traci.trafficlight.Logic(
+                programID="forced_static",
+                type=0,  # 0 代表純靜態，不感應車流
+                currentPhaseIndex=0,
+                phases=default_logic.phases # 直接拷貝預設的所有相位與秒數
+            )
+            
+            # 寫入並套用這個降級版計畫
+            traci.trafficlight.setProgramLogic(tls_id, static_logic)
+            traci.trafficlight.setProgram(tls_id, static_logic.programID)
+            print(f"✅ [{tls_id}] 降級完成！將嚴格執行預設秒數。")
         else:
             print("🚥 [地圖預設資訊] 找不到任何紅綠燈配置。")
     except Exception as e:
@@ -222,7 +237,7 @@ def main():
 
                 # 👑 【核心】：列印出與 RL 完美相容的正規表示式 Log
                 # 這樣 plot_results.py 的 `時間:\s*(\d+)s \| 綠燈.*? \| 5秒獎勵:\s*(-?\d+\.\d+) \| 掉分:\s*(\d+)/20 \| Epsilon:\s*(\d+\.\d+)` 就能抓到！
-                print(f"[BASELINE] 🤖 [RL] 時間: {step}s | 綠燈: {step}s | 5秒獎勵: {reward:.2f} | 掉分: 0/20 | Epsilon: 0.000 | 狀態: '{phase_state}'", flush=True)
+                print(f"[BASELINE] 🤖 [RL] 時間: {step}s | 綠燈: {time_in_current_phase}s | 5秒獎勵: {reward:.2f} | 掉分: 0/20 | Epsilon: 0.000 | 狀態: '{phase_state}'", flush=True)
 
         except traci.TraCIException:
             print("SUMO 連線中斷。")

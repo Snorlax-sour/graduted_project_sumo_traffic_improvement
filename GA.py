@@ -274,10 +274,23 @@ def main():
 
             # 檢查是否有進步
             current_best_fit = hof[0].fitness.values[0]
-            
+            csv_writer.writerow([gen + 1, current_gen_best[0], current_gen_best[1], f"{current_gen_best.fitness.values[0]:.2f}", f"{os.getpid()}"])
+            csv_file.flush()
             if current_best_fit < best_fitness_so_far:
                 best_fitness_so_far = current_best_fit
                 no_improve_count = 0  # 有進步，計數重置
+                FINAL_RESULT_FILENAME = "./GA_best_result.csv" 
+                # 📝 【修改 1】：寫入歷程檔的，永遠是「當代」的最佳組合與延遲
+                
+
+                try:
+                    # 📝 【修改 2】：寫入 GA_best_result.csv 的，永遠是「全局歷史 (HOF)」的最佳解
+                    with open(FINAL_RESULT_FILENAME, mode="w", newline="", encoding="utf-8") as final_f:
+                        final_writer = csv.writer(final_f)
+                        final_writer.writerow(["generation", "phase1", "phase2", "delay", "os_pid"])
+                        final_writer.writerow([gen + 1, global_best[0], global_best[1], f"{global_best.fitness.values[0]:.2f}", f"{os.getpid()}"])
+                except Exception as e:
+                    print(f"error write best csv file: {e}", flush=True)
             else:
                 no_improve_count += 1 # 沒進步，耐性扣點
                 
@@ -289,19 +302,7 @@ def main():
                 break
            
 
-            FINAL_RESULT_FILENAME = "./GA_best_result.csv" 
-            # 📝 【修改 1】：寫入歷程檔的，永遠是「當代」的最佳組合與延遲
-            csv_writer.writerow([gen + 1, current_gen_best[0], current_gen_best[1], f"{current_gen_best.fitness.values[0]:.2f}", f"{os.getpid()}"])
-            csv_file.flush()
-
-            try:
-                # 📝 【修改 2】：寫入 GA_best_result.csv 的，永遠是「全局歷史 (HOF)」的最佳解
-                with open(FINAL_RESULT_FILENAME, mode="w", newline="", encoding="utf-8") as final_f:
-                    final_writer = csv.writer(final_f)
-                    final_writer.writerow(["generation", "phase1", "phase2", "delay", "os_pid"])
-                    final_writer.writerow([gen + 1, global_best[0], global_best[1], f"{global_best.fitness.values[0]:.2f}", f"{os.getpid()}"])
-            except Exception as e:
-                pass
+            
 
     # 輸出結果
     final_global_best = hof[0]
