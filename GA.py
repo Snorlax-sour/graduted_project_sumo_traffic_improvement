@@ -177,7 +177,7 @@ def evaluate(individual):
         # 【修復 3】：確定關閉後，才去讀取 XML
         delay = get_total_delay(unique_tripinfo) 
         # 👑 核心：總延遲 = 原始延遲 + 死鎖罰款 + (車禍次數 * 5000)
-        final_penalty_score = delay + total_deadlock_penalty + (total_collision_count * 5000.0)
+        final_penalty_score = delay + total_deadlock_penalty + (total_collision_count * 1000.0)
         
         return (final_penalty_score,)
             
