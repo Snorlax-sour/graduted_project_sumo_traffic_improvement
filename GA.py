@@ -106,23 +106,39 @@ def evaluate(individual):
         total_deadlock_penalty = 0.0 # 👑 新增：紀錄死鎖造成的延遲懲罰
         MAX_SIM_STEPS = 8000
         step = 0
+        # 👑 在 main 裡面先取得受控路口的所有車道清單
+        controlled_lanes = set(conn.trafficlight.getControlledLanes(TRAFFIC_LIGHT_ID))
+        total_collision_count = 0  # 👑 新增：這場模擬總共撞了幾次
         while step < MAX_SIM_STEPS and conn.simulation.getMinExpectedNumber() > 0:
             conn.simulationStep()
             step += 1
             # 👇👇👇 智能裁判邏輯 👇👇👇
-            # 🚨 極度重要：這裡全部改用 conn.，不能用 traci.！
+            # 偵測碰撞
             collisions = conn.simulation.getCollisions()
             for coll in collisions:
                 v1, v2 = coll.collider, coll.victim
                 if v1 not in active_crashes and v2 not in active_crashes:
+                    
+                    # 👑 【精準過濾】：判斷車禍車道是否屬於本路口
+                    is_my_junction = False
+                    if coll.lane in controlled_lanes: # 車道在路口進入端
+                        is_my_junction = True
+                    elif coll.lane.startswith(':'): # 發生在路口內部 (Internal Lane)
+                        # 內部車道名稱通常包含路口 ID，例如 :1253678773_0_0
+                        if TRAFFIC_LIGHT_ID in coll.lane:
+                            is_my_junction = True
+                    
+                    if not is_my_junction:
+                        continue # 👑 別處撞車，與我無關，跳過
+
                     try:
                         angle1, angle2 = conn.vehicle.getAngle(v1), conn.vehicle.getAngle(v2)
                         angle_diff = abs(angle1 - angle2) % 360
                         if angle_diff > 180: angle_diff = 360 - angle_diff
                         
                         if angle_diff > 45 or coll.lane.startswith(':'):
-                            # 📢 統一印出此標籤，讓畫圖腳本統計
-                            print(f"💥 [REAL_COLLISION] Step: {step} | {v1} 撞 {v2} | Lane: {coll.lane}", flush=True)
+                            print(f"💥 [REAL_COLLISION] 本路口發生車禍! Step: {step} | Lane: {coll.lane}", flush=True)
+                            total_collision_count += 1  # 👑 紀錄發生次數
                             active_crashes[v1] = 60
                             active_crashes[v2] = 60
                     except: pass
@@ -160,7 +176,10 @@ def evaluate(individual):
         
         # 【修復 3】：確定關閉後，才去讀取 XML
         delay = get_total_delay(unique_tripinfo) 
-        return delay + total_deadlock_penalty,
+        # 👑 核心：總延遲 = 原始延遲 + 死鎖罰款 + (車禍次數 * 5000)
+        final_penalty_score = delay + total_deadlock_penalty + (total_collision_count * 5000.0)
+        
+        return (final_penalty_score,)
             
     except Exception as e:
         print(f"Error in PID {pid}: {e}", flush=True)
