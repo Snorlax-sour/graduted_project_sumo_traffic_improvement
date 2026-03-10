@@ -1,5 +1,6 @@
 import traci
 import sys
+import json # 👑 新增：用於儲存訓練紀錄
 import os
 from DQN_RL_Agent import DQNAgent 
 import csv 
@@ -10,6 +11,25 @@ GA_RESULT_PATH = "./GA_best_result.csv"
 last_total_waiting_time = 0.0
 last_total_queue_length = 0.0
 last_total_cumulative_waiting_time = 0.0
+# 👑 【新增函數】：管理訓練次數的讀取與寫入
+def get_and_update_training_stats(instance_id, increment=False):
+    stats_file = f"stats_{instance_id}.json"
+    data = {"training_count": 0, "last_update": ""}
+    
+    if os.path.exists(stats_file):
+        try:
+            with open(stats_file, 'r') as f:
+                data = json.load(f)
+        except: pass
+    
+    if increment:
+        data["training_count"] += 1
+        data["last_update"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with open(stats_file, 'w') as f:
+            json.dump(data, f)
+            
+    return data["training_count"]
+
 
 def read_ga_optimal_phases(csv_filepath):
     DEFAULT_PHASES = [35.0, 25.0] 
@@ -158,7 +178,8 @@ def parse_arguments():
 def main():
     mode, instance_id = parse_arguments()
     is_train_mode = (mode == 'train')
-    
+    # 👑 讀取目前的訓練次數
+    current_train_count = get_and_update_training_stats(instance_id, increment=False)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M")
     log_filename = f"execute_RL_{timestamp}_{instance_id}_{mode}.txt"
 
@@ -182,6 +203,7 @@ def main():
     print(f"🚀 啟動模式: {mode.upper()}")
     print(f"⏰ 開始時間: {timestamp}")
     print(f"🆔 實例 ID : {instance_id}")
+    print(f"🎓 訓練次數: 第 {current_train_count} 次經驗") # 👑 啟動時印出
     print(f"📝 日誌檔案: {log_filename}")
     print("#"*55 + "\n")
     
@@ -219,12 +241,13 @@ def main():
     sumo_binary = "sumo" if is_train_mode else "sumo-gui"
     sumoCmd = [
         sumo_binary, "-c", SUMO_CONFIG_FILE,
-        "--time-to-teleport", "300",
+        "--time-to-teleport", "3600",
         "--tripinfo-output", f"tripinfo_RL_{instance_id}.xml",
         "--seed", str(sim_seed),
         "--lateral-resolution", "0.05" ,
         "--collision.mingap-factor", "0", 
-        "--collision.action", "none",
+        "--collision.action", "warn",
+        "--collision.check-junctions", "true", # 加強路口判定
     ]
     traci.start(sumoCmd)
     
@@ -265,20 +288,22 @@ def main():
             else:
                 empty_step_counter = 0  
                 
+            # 智能裁判邏輯 (統一標籤版)
             collisions = traci.simulation.getCollisions()
             for coll in collisions:
                 v1, v2 = coll.collider, coll.victim
                 if v1 not in active_crashes and v2 not in active_crashes:
                     try:
-                        angle1 = traci.vehicle.getAngle(v1)
-                        angle2 = traci.vehicle.getAngle(v2)
+                        angle1, angle2 = traci.vehicle.getAngle(v1), traci.vehicle.getAngle(v2)
                         angle_diff = abs(angle1 - angle2) % 360
                         if angle_diff > 180: angle_diff = 360 - angle_diff
+                        
                         if angle_diff > 45 or coll.lane.startswith(':'):
-                            active_crashes[v1] = 60 
+                            # 📢 統一印出此標籤，讓畫圖腳本統計
+                            print(f"💥 [REAL_COLLISION] Step: {step} | {v1} 撞 {v2} | Lane: {coll.lane}", flush=True)
+                            active_crashes[v1] = 60
                             active_crashes[v2] = 60
-                    except traci.TraCIException:
-                        pass 
+                    except: pass
 
             for v in list(active_crashes.keys()):
                 active_crashes[v] -= 1
@@ -433,6 +458,9 @@ def main():
     
     if is_train_mode:
         agent.save_model() 
+        # 👑 訓練完成後，更新紀錄檔中的次數！
+        new_count = get_and_update_training_stats(instance_id, increment=True)
+        print(f"\n✅ 訓練完成！次數已從 {current_train_count} 更新為 {new_count}。")
         try:
             notification.notify(
                 title = "Python RL Trainning Finish",

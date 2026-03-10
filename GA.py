@@ -56,14 +56,15 @@ def evaluate(individual):
 
     unique_sumo_cmd = [
         sumo_binary, "-c", SUMO_CONFIG_FILE,
-        "--time-to-teleport", "300",
+        "--time-to-teleport", "3600",
         "--seed", str(sim_seed),
         "--lateral-resolution", "0.05",
         "--tripinfo-output", unique_tripinfo,
         "--no-warnings", "true", # 減少控制台的噪音
         "--no-step-log", "true",
         "--collision.mingap-factor", "0", # 【新增】放寬碰撞判定，允許極限貼車鑽縫，前後方向
-        "--collision.action", "none", #讓SUMO無視碰撞 (車子的框框互相碰到了) ，而程式處理，是真碰撞還是假碰撞
+        "--collision.action", "warn", #讓SUMO無視碰撞 (車子的框框互相碰到了) ，而程式處理，是真碰撞還是假碰撞
+        "--collision.check-junctions", "true", # 加強路口判定
     ]
 
     try:
@@ -115,17 +116,16 @@ def evaluate(individual):
                 v1, v2 = coll.collider, coll.victim
                 if v1 not in active_crashes and v2 not in active_crashes:
                     try:
-                        angle1 = conn.vehicle.getAngle(v1)
-                        angle2 = conn.vehicle.getAngle(v2)
+                        angle1, angle2 = conn.vehicle.getAngle(v1), conn.vehicle.getAngle(v2)
                         angle_diff = abs(angle1 - angle2) % 360
-                        if angle_diff > 180: 
-                            angle_diff = 360 - angle_diff
+                        if angle_diff > 180: angle_diff = 360 - angle_diff
                         
                         if angle_diff > 45 or coll.lane.startswith(':'):
-                            active_crashes[v1] = 60 
+                            # 📢 統一印出此標籤，讓畫圖腳本統計
+                            print(f"💥 [REAL_COLLISION] Step: {step} | {v1} 撞 {v2} | Lane: {coll.lane}", flush=True)
+                            active_crashes[v1] = 60
                             active_crashes[v2] = 60
-                    except traci.TraCIException:
-                        pass 
+                    except: pass
 
             # 執行物理路障
             for v in list(active_crashes.keys()):

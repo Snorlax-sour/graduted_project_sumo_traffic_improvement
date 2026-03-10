@@ -131,9 +131,10 @@ def main():
         "--seed", str(SIM_SEED),
         "--lateral-resolution", "0.05",
         "--collision.mingap-factor", "0",
-        "--collision.action", "none",
+        "--collision.action", "warn",
         "--no-warnings", "true",
         "--no-step-log", "true"
+        "--collision.check-junctions", "true", # 加強路口判定
     ]
     
     traci.start(sumoCmd)
@@ -207,7 +208,7 @@ def main():
             else:
                 empty_step_counter = 0
 
-            # 智能裁判邏輯 (過濾假車禍)
+            # 智能裁判邏輯 (統一標籤版)
             collisions = traci.simulation.getCollisions()
             for coll in collisions:
                 v1, v2 = coll.collider, coll.victim
@@ -218,9 +219,10 @@ def main():
                         if angle_diff > 180: angle_diff = 360 - angle_diff
                         
                         if angle_diff > 45 or coll.lane.startswith(':'):
+                            # 📢 統一印出此標籤，讓畫圖腳本統計
+                            print(f"💥 [REAL_COLLISION] Step: {step} | {v1} 撞 {v2} | Lane: {coll.lane}", flush=True)
                             active_crashes[v1] = 60
                             active_crashes[v2] = 60
-                            report_true_collisions.append((step, v1, v2, coll.lane))
                     except: pass
 
             for v in list(active_crashes.keys()):
