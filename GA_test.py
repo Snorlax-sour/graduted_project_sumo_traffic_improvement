@@ -190,8 +190,11 @@ def main():
 
     current_phase = traci.trafficlight.getPhase(TRAFFIC_LIGHT_ID)
     time_in_current_phase = 0
-    continuous_reward_drop = 0
+
     step_collision_counter = 0
+    # 👑 在 main 裡面先取得受控路口的所有車道清單
+    controlled_lanes = set(traci.trafficlight.getControlledLanes(TRAFFIC_LIGHT_ID))
+    step_collision_counter = 0 # 用於每 10 秒結算一次
     while step < MAX_SIMULATION_STEPS:
         try:
             traci.simulationStep()
@@ -212,22 +215,34 @@ def main():
             else:
                 empty_step_counter = 0
 
-            # 智能裁判邏輯 (統一標籤版)
+            # 偵測碰撞
             collisions = traci.simulation.getCollisions()
             for coll in collisions:
                 v1, v2 = coll.collider, coll.victim
                 if v1 not in active_crashes and v2 not in active_crashes:
+                    
+                    # 👑 【精準過濾】：判斷車禍車道是否屬於本路口
+                    is_my_junction = False
+                    if coll.lane in controlled_lanes: # 車道在路口進入端
+                        is_my_junction = True
+                    elif coll.lane.startswith(':'): # 發生在路口內部 (Internal Lane)
+                        # 內部車道名稱通常包含路口 ID，例如 :1253678773_0_0
+                        if TRAFFIC_LIGHT_ID in coll.lane:
+                            is_my_junction = True
+                    
+                    if not is_my_junction:
+                        continue # 👑 別處撞車，與我無關，跳過
+
                     try:
                         angle1, angle2 = traci.vehicle.getAngle(v1), traci.vehicle.getAngle(v2)
                         angle_diff = abs(angle1 - angle2) % 360
                         if angle_diff > 180: angle_diff = 360 - angle_diff
                         
                         if angle_diff > 45 or coll.lane.startswith(':'):
-                            # 📢 統一印出此標籤，讓畫圖腳本統計
-                            print(f"💥 [REAL_COLLISION] Step: {step} | {v1} 撞 {v2} | Lane: {coll.lane}", flush=True)
+                            print(f"💥 [REAL_COLLISION] 本路口發生車禍! Step: {step} | Lane: {coll.lane}", flush=True)
+                            step_collision_counter += 1 # 👑 累加給 reward 扣分
                             active_crashes[v1] = 60
                             active_crashes[v2] = 60
-                            step_collision_counter += 1
                     except: pass
 
             for v in list(active_crashes.keys()):
