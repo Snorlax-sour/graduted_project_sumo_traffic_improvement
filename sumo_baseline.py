@@ -35,7 +35,7 @@ def get_total_queue_length(tls_id):
     except Exception:
         return 0
 
-def calculate_reward(tls_id):
+def calculate_reward(tls_id, step_collision_counter = 0):
     global last_total_waiting_time
     try:
         lanes = traci.trafficlight.getControlledLanes(tls_id)
@@ -50,7 +50,10 @@ def calculate_reward(tls_id):
         delta_delay = current_total_waiting_time - last_total_waiting_time
         penalty_delta = max(0, delta_delay) * 2.0
 
-        reward = -(penalty_waiting + penalty_queue + penalty_delta)
+        # 👑 統一懲罰標準
+        penalty_collision = collision_count * 1000.0  # 一次車禍扣 1000 分
+        
+        reward = -(penalty_waiting + penalty_queue + penalty_delta + penalty_collision)
         last_total_waiting_time = current_total_waiting_time
         return reward, current_total_queue_length
     except Exception:
@@ -109,7 +112,7 @@ def main():
         "--collision.mingap-factor", "0",
         "--collision.action", "warn",
         "--no-warnings", "true",
-        "--no-step-log", "true"
+        "--no-step-log", "true",
         "--collision.check-junctions", "true", # 加強路口判定
     ]
     
@@ -166,6 +169,7 @@ def main():
     time_in_current_phase = 0
     # 👇 新增這個計數器 👇
     continuous_reward_drop = 0
+    step_collision_counter = 0
     while step < MAX_SIMULATION_STEPS:
         try:
             traci.simulationStep()
@@ -201,6 +205,7 @@ def main():
                             print(f"💥 [REAL_COLLISION] Step: {step} | {v1} 撞 {v2} | Lane: {coll.lane}", flush=True)
                             active_crashes[v1] = 60
                             active_crashes[v2] = 60
+                            step_collision_counter += 1
                     except: pass
 
             for v in list(active_crashes.keys()):
@@ -222,8 +227,10 @@ def main():
                         deadlock_penalty -= 500
 
             # 4. 每 5 秒輸出一次偽裝成 RL 的 Log，餵給畫圖腳本！
-            if step %  ACTION_INTERVAL == 0:
-                reward, _ = calculate_reward(TRAFFIC_LIGHT_ID)
+            if step % ACTION_INTERVAL == 0:
+                # 這裡也要修改 calculate_reward 讓它能接收車禍數
+                reward, _ = calculate_reward(TRAFFIC_LIGHT_ID, step_collision_counter)
+                step_collision_counter = 0 # 歸零
                 reward += deadlock_penalty 
                 cumulative_reward += reward
                 phase_state = traci.trafficlight.getRedYellowGreenState(TRAFFIC_LIGHT_ID)

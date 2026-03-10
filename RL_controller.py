@@ -77,7 +77,7 @@ def get_state(tls_id):
     state_list = queue_lengths + [current_phase] + [GA_min_time_suggestion]
     return tuple(state_list)
 
-def calculate_reward(tls_id):
+def calculate_reward(tls_id, collision_count=0):
     try:
         lanes = traci.trafficlight.getControlledLanes(tls_id)
         unique_lanes = list(set(lanes))
@@ -86,7 +86,8 @@ def calculate_reward(tls_id):
             vehicle_ids = traci.lane.getLastStepVehicleIDs(lane)
             for veh_id in vehicle_ids:
                 current_total_waiting_time += traci.vehicle.getWaitingTime(veh_id)
-        
+        # 👑 新增：車禍重罰 (例如一次撞擊扣 1000 分)
+        penalty_collision = collision_count * 1000.0
         global last_total_waiting_time
         delta_delay = last_total_waiting_time - current_total_waiting_time
         delta_delay *= -1
@@ -95,7 +96,7 @@ def calculate_reward(tls_id):
         penalty_queue = 0.5 * (current_total_queue_length ** 2)
         delta_delay = current_total_waiting_time - last_total_waiting_time
         penalty_delta = max(0, delta_delay) * 2.0
-        reward = -(penalty_waiting + penalty_queue + penalty_delta)
+        reward = -(penalty_waiting + penalty_queue + penalty_delta + penalty_collision)
         last_total_waiting_time = current_total_waiting_time
         return reward, current_total_waiting_time
             
@@ -279,7 +280,7 @@ def main():
         try:
             traci.simulationStep()
             step += 1
-            
+            step_collision_counter = 0 # 每一偵測到真車禍就 +1
             if traci.simulation.getMinExpectedNumber() <= 0:
                 empty_step_counter += 1
                 if empty_step_counter >= STOP_THRESHOLD:
@@ -303,6 +304,7 @@ def main():
                             print(f"💥 [REAL_COLLISION] Step: {step} | {v1} 撞 {v2} | Lane: {coll.lane}", flush=True)
                             active_crashes[v1] = 60
                             active_crashes[v2] = 60
+                            step_collision_counter += 1 # 👑 紀錄下來
                     except: pass
 
             for v in list(active_crashes.keys()):
@@ -361,7 +363,9 @@ def main():
                         current_state = get_state(TRAFFIC_LIGHT_ID)
 
                         if last_state is not None:
-                            reward, _ = calculate_reward(TRAFFIC_LIGHT_ID)
+                            # 傳入這段期間發生的車禍總數
+                            reward, _ = calculate_reward(TRAFFIC_LIGHT_ID, step_collision_counter)
+                            step_collision_counter = 0 # 👑 結算後歸零
                             cumulative_reward += reward
                             phase_state = traci.trafficlight.getRedYellowGreenState(TRAFFIC_LIGHT_ID)
                             
