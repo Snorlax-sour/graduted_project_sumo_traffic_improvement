@@ -163,6 +163,8 @@ def main():
     # 👑 新增：追蹤目前紅綠燈的相位與持續時間
     current_phase = traci.trafficlight.getPhase(TRAFFIC_LIGHT_ID)
     time_in_current_phase = 0
+    # 👇 新增這個計數器 👇
+    continuous_reward_drop = 0
     while step < MAX_SIMULATION_STEPS:
         try:
             traci.simulationStep()
@@ -234,10 +236,14 @@ def main():
                     print("✅ GA 示範結束，控制權交還給 RL！", flush=True) # 結束畫圖的紫色區塊
                     is_currently_jammed = False
                     report_jam_events.append((jam_start_time, step))
-
+                # 👇👇👇 👑 新增：真實計算連續負獎勵掉分次數 👇👇👇
+                if reward < 0:
+                    continuous_reward_drop += 1
+                else:
+                    continuous_reward_drop = 0
                 # 👑 【核心】：列印出與 RL 完美相容的正規表示式 Log
                 # 這樣 plot_results.py 的 `時間:\s*(\d+)s \| 綠燈.*? \| 5秒獎勵:\s*(-?\d+\.\d+) \| 掉分:\s*(\d+)/20 \| Epsilon:\s*(\d+\.\d+)` 就能抓到！
-                print(f"[BASELINE] 🤖 [RL] 時間: {step}s | 綠燈: {time_in_current_phase}s | 5秒獎勵: {reward:.2f} | 掉分: 0/20 | Epsilon: 0.000 | 狀態: '{phase_state}'", flush=True)
+                print(f"[BASELINE] 🤖 [RL] 時間: {step}s | 綠燈: {time_in_current_phase}s | {ACTION_INTERVAL}秒獎勵: {reward:.2f} | 掉分: {continuous_reward_drop}/20 | Epsilon: 0.000 | 狀態: '{phase_state}'", flush=True)
 
         except traci.TraCIException:
             print("SUMO 連線中斷。")
