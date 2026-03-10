@@ -257,7 +257,6 @@ def main():
             traci.simulationStep()
             step += 1
             
-            # --- 提早結束與車禍裁判邏輯 (保持不變) ---
             if traci.simulation.getMinExpectedNumber() <= 0:
                 empty_step_counter += 1
                 if empty_step_counter >= STOP_THRESHOLD:
@@ -271,12 +270,15 @@ def main():
                 v1, v2 = coll.collider, coll.victim
                 if v1 not in active_crashes and v2 not in active_crashes:
                     try:
-                        angle_diff = abs(traci.vehicle.getAngle(v1) - traci.vehicle.getAngle(v2)) % 360
+                        angle1 = traci.vehicle.getAngle(v1)
+                        angle2 = traci.vehicle.getAngle(v2)
+                        angle_diff = abs(angle1 - angle2) % 360
                         if angle_diff > 180: angle_diff = 360 - angle_diff
                         if angle_diff > 45 or coll.lane.startswith(':'):
                             active_crashes[v1] = 60 
                             active_crashes[v2] = 60
-                    except traci.TraCIException: pass 
+                    except traci.TraCIException:
+                        pass 
 
             for v in list(active_crashes.keys()):
                 active_crashes[v] -= 1
@@ -290,97 +292,95 @@ def main():
                     del active_crashes[v]
 
             deadlock_penalty = 0
-            for v_id in traci.vehicle.getIDList():
-                if traci.vehicle.getSpeed(v_id) < 0.1 and traci.vehicle.getWaitingTime(v_id) > 90:
-                    traci.vehicle.remove(v_id) 
-                    deadlock_penalty -= 500
-
-            # ==========================================
-            # 🚦 核心控制與狀態更新邏輯
-            # ==========================================
+            vehicles = traci.vehicle.getIDList()
+            for v_id in vehicles:
+                if traci.vehicle.getSpeed(v_id) < 0.1:
+                    waiting_time = traci.vehicle.getWaitingTime(v_id)
+                    if waiting_time > 90:
+                        traci.vehicle.remove(v_id) 
+                        deadlock_penalty -= 500
+                        
             new_phase = traci.trafficlight.getPhase(TRAFFIC_LIGHT_ID)
-            
-            # 偵測到燈號發生了實質的切換 (無論是誰切的)
             if new_phase != current_phase:
                 current_phase = new_phase
-                time_in_current_phase = 0 # 重置計時器為 0
-                
-                # 奪取 SUMO 控制權 (如果是綠燈，給它一萬秒的壽命，直到 RL 說切換)
+                time_in_current_phase = 0 
                 if current_phase % 2 == 0:
                     traci.trafficlight.setPhaseDuration(TRAFFIC_LIGHT_ID, 10000)
             else:
-                time_in_current_phase += 1 # 燈號沒變，計時器增加
+                time_in_current_phase += 1 
 
-            # --- 週期切換檢查 (用於 GA 保護機制的倒數) ---
+            # ==========================================
+            # 🔄 GA 週期結束交接：實作「5次試錯寬限期」
+            # ==========================================
             if current_phase == 0 and last_phase != 0 and last_phase != -1:
                 if control_mode == "GA":
                     ga_override_cycles_left -= 1
                     print(f"🔄 GA 接管中... 剩餘 {ga_override_cycles_left} 個週期", flush=True)
+                    
                     if ga_override_cycles_left <= 0:
-                        print("✅ GA 示範結束，控制權交還給 RL！", flush=True)
+                        # 👑 核心改動：給予 RL 5次機會 (20-5 = 15)
+                        # 如果原本掉分是 30，我們會把它強行拉回到 15
+                        continuous_reward_drop = 15 
+                        
+                        print(f"✅ GA 示範結束，控制權交還。RL 進入「5次限制試用期」(目前掉分: {continuous_reward_drop}/20)", flush=True)
                         control_mode = "RL"
-                        continuous_reward_drop = 0 
             last_phase = current_phase
-
             # ==========================================
             # 🟢 綠燈決策階段
             # ==========================================
             if current_phase % 2 == 0: 
                 
+                # 🤖 RL 控制模式
                 if control_mode == "RL":
-                    # 只有在 time_in_current_phase > 0 且整除 10 的時候才結算與決策
                     if time_in_current_phase > 0 and time_in_current_phase % ACTION_INTERVAL == 0:
                         current_state = get_state(TRAFFIC_LIGHT_ID)
 
                         if last_state is not None:
                             reward, _ = calculate_reward(TRAFFIC_LIGHT_ID)
                             cumulative_reward += reward
-
-                            display_drop = continuous_reward_drop 
                             phase_state = traci.trafficlight.getRedYellowGreenState(TRAFFIC_LIGHT_ID)
                             
-                            # 評估是否需要切換到 GA 模式
                             if check_downstream_jam(TRAFFIC_LIGHT_ID, jam_threshold=0.85):
                                 print("🚨 下游癱瘓，強制切換 GA 疏導！", flush=True)
                                 control_mode = "GA"
                                 ga_override_cycles_left = 3
                             else:
+                                # 👑 真實計分邏輯
                                 if reward < 0:
                                     continuous_reward_drop += 1
-                                    display_drop = continuous_reward_drop 
+                                    
+                                    # 如果掉分超過 20，直接強制交給 GA！
                                     if continuous_reward_drop >= 20:
-                                        print(f"📉 RL 連續負獎勵 20 次，觸發 GA 保護機制！", flush=True)
+                                        print(f"📉 RL 連續負獎勵 {continuous_reward_drop} 次，觸發 GA 保護機制！", flush=True)
                                         control_mode = "GA"
                                         ga_override_cycles_left = 3
-                                        continuous_reward_drop = 0 
+                                        # 🚨 同樣移除這裡的歸零邏輯
                                 else:
+                                    # 👑 只要拿到一次正獎勵，代表 RL 找到解法了，立刻恢復完整權限
+                                    if continuous_reward_drop > 0:
+                                        print(f"🌟 RL 表現回升 (Reward > 0)，正式通過試用期，掉分紀錄歸零。", flush=True)
                                     continuous_reward_drop = 0
-                                    display_drop = 0
-
-                            # 📢 終於！穩穩地印出 RL 資訊！
-                            print(f"{mode_label} 🤖 [RL] 時間: {step}s | 綠燈: {time_in_current_phase}s | {ACTION_INTERVAL}秒獎勵: {reward:.2f} | 掉分: {display_drop}/20 | Epsilon: {agent.exploration_rate:.3f} | 狀態: '{phase_state}'", flush=True)
+                                    
+                            print(f"{mode_label} 🤖 [RL] 時間: {step}s | 綠燈: {time_in_current_phase}s | {ACTION_INTERVAL}秒獎勵: {reward:.2f} | 掉分: {continuous_reward_drop}/20 | Epsilon: {agent.exploration_rate:.3f} | 狀態: '{phase_state}'", flush=True)
                             
                             if is_train_mode:
                                 agent.learn(last_state, 0, reward, current_state) 
 
-                        # RL 進行下一步決策
-                        if time_in_current_phase < MIN_GREEN_TIME:
-                            action = 0 
-                        else:
-                            action = agent.choose_action(current_state)
+                        if control_mode == "RL":
+                            if time_in_current_phase < MIN_GREEN_TIME:
+                                action = 0 
+                            else:
+                                action = agent.choose_action(current_state)
 
-                        last_state = current_state
+                            last_state = current_state
 
-                        # RL 決定切換！
-                        if action == 1:
-                            print(f"⚡ [RL] 決定切換紅綠燈！進入黃燈過渡期。", flush=True)
-                            if is_train_mode:
-                                agent.learn(current_state, 1, 0, current_state) 
-                            
-                            # 直接告訴 SUMO 切換下一個相位
-                            traci.trafficlight.setPhase(TRAFFIC_LIGHT_ID, (current_phase + 1) % num_phases)
-                            
-                # 🟣 GA 控制模式
+                            if action == 1:
+                                print(f"⚡ [RL] 決定切換紅綠燈！進入黃燈過渡期。", flush=True)
+                                if is_train_mode:
+                                    agent.learn(current_state, 1, 0, current_state) 
+                                traci.trafficlight.setPhase(TRAFFIC_LIGHT_ID, (current_phase + 1) % num_phases)
+                                
+                # 🧬 GA 控制模式
                 elif control_mode == "GA":
                     ga_dur = GA_OPTIMAL_PHASES[0] if current_phase == 0 else GA_OPTIMAL_PHASES[1]
                     
@@ -390,38 +390,37 @@ def main():
                         cumulative_reward += reward
                         phase_state = traci.trafficlight.getRedYellowGreenState(TRAFFIC_LIGHT_ID)
                         
+                        # 👑 讓 GA 也面對真實的成績單！
+                        if reward < 0:
+                            continuous_reward_drop += 1
+                        else:
+                            # 只有 GA 真的排解了壅塞（拿到正獎勵），才算是「真的好了」
+                            continuous_reward_drop = 0
+                            
                         print(f"{mode_label} 🧬 [GA] 時間: {step}s | 綠燈: {time_in_current_phase}s / {ga_dur}s | {ACTION_INTERVAL}秒獎勵: {reward:.2f} | 掉分: {continuous_reward_drop}/20 | Epsilon: {agent.exploration_rate:.3f} | 狀態: '{phase_state}'", flush=True)
 
                         if is_train_mode and last_state is not None:
                             agent.learn(last_state, 0, reward, current_state)
                         last_state = current_state
 
-                    # GA 時間到了，強制切換
                     if time_in_current_phase >= ga_dur:
                         print(f"⚡ [GA] 達到最佳秒數 {ga_dur}s，切換紅綠燈！", flush=True)
                         if is_train_mode and last_state is not None:
                             current_state = get_state(TRAFFIC_LIGHT_ID)
                             agent.learn(last_state, 1, 0, current_state)
-                            
                         traci.trafficlight.setPhase(TRAFFIC_LIGHT_ID, (current_phase + 1) % num_phases)
 
             # ==========================================
             # 🟡🔴 黃燈與紅燈過渡階段
             # ==========================================
             else:
-                # 取得 SUMO 預先設定好的黃燈/紅燈秒數 (通常是 3 秒)
                 target_phase_duration = traci.trafficlight.getPhaseDuration(TRAFFIC_LIGHT_ID)
-                
-                # 黃/紅燈時間到了，我們手動幫它切換到下一個綠燈相位
                 if time_in_current_phase >= target_phase_duration:
-                    print(f"⏳ [過渡結束] 黃/紅燈 {target_phase_duration}s 結束，切換下一相位。", flush=True)
                     traci.trafficlight.setPhase(TRAFFIC_LIGHT_ID, (current_phase + 1) % num_phases)
                     
-                    # 關鍵：切換後我們不再等待下一個迴圈，直接強制更新狀態，確保不會卡住
                     current_phase = traci.trafficlight.getPhase(TRAFFIC_LIGHT_ID)
                     time_in_current_phase = 0
                     
-                    # 既然變回綠燈了，立刻鎖死計時器給 RL 控制
                     if current_phase % 2 == 0:
                         traci.trafficlight.setPhaseDuration(TRAFFIC_LIGHT_ID, 10000)
 
