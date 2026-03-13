@@ -214,7 +214,8 @@ toolbox.register("population", tools.initRepeat, list, toolbox.individual)
 toolbox.register("evaluate", evaluate) 
 toolbox.register("mate", tools.cxTwoPoint)
 toolbox.register("mutate", tools.mutUniformInt, low=TIME_MIN, up=TIME_MAX, indpb=0.5)
-toolbox.register("select", tools.selTournament, tournsize=3)
+toolbox.register("select", tools.selTournament, tournsize=2)
+    # 每2人一組對打，打100場，1v1
 
 
 # 【修復 5】：主程式保護！這在 Windows 使用多核心是必備的
@@ -314,7 +315,15 @@ def main():
                 no_improve_count += 1 # 沒進步，耐性扣點
                 
             print(f"第 {gen+1} 代，連續未進步：{no_improve_count}/{PATIENCE}")
-
+            # 🌟 【加入這一段：打破近親繁殖的僵局】🌟
+            if no_improve_count % 4 == 0:  # 如果連續 4 代沒進步，代表基因庫可能死水了
+                print(f"⚠️ 偵測到基因庫同質化，保留歷史最強，其餘重新隨機生成！")
+                # 保留歷史上最強的那一個 (HOF)
+                elite = toolbox.clone(hof[0])
+                # 把剩下 99 個全部殺掉，重新產生隨機的新基因
+                pop = toolbox.population(n=POP_SIZE)
+                pop[0] = elite  # 把最強的放回第 0 個位置保底
+                
             # 觸發提前停止
             if no_improve_count >= PATIENCE:
                 print(f" [!] 偵測到演算法已收斂，提前停止於第 {gen+1} 代。")
