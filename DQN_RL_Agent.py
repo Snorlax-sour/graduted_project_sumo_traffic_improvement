@@ -10,6 +10,7 @@ import tensorflow as tf # pyright: ignore[reportMissingImports]
 tf.config.run_functions_eagerly(True) 
 tf.data.experimental.enable_debug_mode() # 這個可以移除，不影響模型訓練
  # <--- 【新增或確認】
+import json
 import os # 新增：用於檢查檔案是否存在
 
 class DQNAgent:
@@ -176,56 +177,70 @@ class DQNAgent:
         if len(self.memory) > 64: 
             self.replay(batch_size=64)
 
-    # --- 【修正點 2：新增儲存模型的方法】---
     def save_model(self):
-        """強制使用實例 ID 作為檔名，避免實驗結果互相覆蓋"""
+        # 確保儲存目錄存在
+        os.makedirs(os.path.dirname(self.model_filename) if os.path.dirname(self.model_filename) else '.', exist_ok=True)
+        
+        # 1. 存入神經網路權重
+        self.model.save(self.model_filename)
+        self.target_model.save(self.target_model_filename)
+        
+        # ==========================================
+        # 👑 關鍵新增：將當前的 Epsilon 存入 JSON 記憶檔
+        # ==========================================
+        meta_data = {
+            "exploration_rate": self.exploration_rate
+        }
+        meta_filename = f"meta_{self.model_filename}.json"
         try:
-            self.model.save(self.model_filename)
-            self.target_model.save(self.target_model_filename)
-            print(f"\n✅ RL 模型已儲存: {self.model_filename}")
+            with open(meta_filename, "w", encoding="utf-8") as f:
+                json.dump(meta_data, f)
+            print(f"💾 [記憶儲存] 已將當前 Epsilon ({self.exploration_rate:.4f}) 存入 {meta_filename}")
         except Exception as e:
-            print(f"\n❌ 模型儲存失敗: {e}")
+            print(f"❌ 儲存 JSON 記憶檔時發生錯誤: {e}")
 
-    # --- 【修正點 3：新增載入模型的方法】---
     def load_model(self):
-        """從帶有唯一 ID 的檔案載入模型"""
-        # 確保 model 檔案存在
-        if not os.path.exists(self.model_filename):
-            print(f"警告：找不到模型檔案 '{self.model_filename}'，將從頭開始訓練。")
-            return False
-            
-        try:
+        if os.path.exists(self.model_filename):
             # 【修正】: 載入模型前，先確保本地模型結構已建立
             if self.model is None:
                 self.build_models()
             # 【關鍵修正】：使用 custom_objects 參數解決反序列化錯誤
             custom_objects = {
-                # 將模型儲存時使用的 'mse' 字串映射到實際的 Keras 函式
                 'mse': MeanSquaredError,
                 'mean_squared_error': MeanSquaredError,
-                # 雖然 Adam 通常會自動載入，但明確指定更安全
                 'Adam': Adam 
             }
             self.model = load_model(self.model_filename, 
-                custom_objects=custom_objects, # <--- 修正點
-                compile=True # 確保模型載入後是可用的
+                custom_objects=custom_objects,
+                compile=True 
                 )
             self.target_model = load_model(self.target_model_filename, 
-                custom_objects=custom_objects, # <--- 修正點
-                compile=True # 確保模型載入後是可用的
+                custom_objects=custom_objects,
+                compile=True 
                 )
             # 【修復】：載入後，強制重新接上梯度計算圖！
             self.model.compile(loss='mse', optimizer=Adam(learning_rate=self.learning_rate))
             self.target_model.compile(loss='mse', optimizer=Adam(learning_rate=self.learning_rate))
             self.update_target_model() # 載入後同步權重
             
-            # 載入模型後，將探索率降到最低
-            self.exploration_rate = self.min_exploration
-            print(f"✅ RL 模型已載入: {self.model_filename}. Epsilon 重設為 {self.min_exploration}")
+            # ==========================================
+            # 👑 關鍵新增：從 JSON 記憶檔讀取 Epsilon
+            # ==========================================
+            meta_filename = f"meta_{self.model_filename}.json"
+            if os.path.exists(meta_filename):
+                try:
+                    with open(meta_filename, "r", encoding="utf-8") as f:
+                        meta_data = json.load(f)
+                        self.exploration_rate = meta_data.get("exploration_rate", self.min_exploration)
+                        print(f"📖 [記憶讀取] 成功恢復上次的探索率 Epsilon: {self.exploration_rate:.4f}")
+                except Exception as e:
+                    print(f"⚠️ 讀取 JSON 記憶檔失敗 ({e})，Epsilon 重設為最低。")
+                    self.exploration_rate = self.min_exploration
+            else:
+                print(f"⚠️ 找不到 JSON 記憶檔，Epsilon 重設為 {self.min_exploration}")
+                self.exploration_rate = self.min_exploration
+            
+            print(f"✅ RL 權重模型已載入: {self.model_filename}")
             return True
-        except Exception as e:
-            # 如果載入失敗，則忽略並使用新模型
-            print(f"❌ 無法載入模型 '{self.model_filename}' (錯誤: {e})，將從頭開始訓練。")
-            return False
-
+        return False
     

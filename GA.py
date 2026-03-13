@@ -199,7 +199,7 @@ def evaluate(individual):
 # --- GA 參數設定與初始化 ---
 POP_SIZE = 100 # 建議測試時先調小，確認跑得動再改回 100
 GEN_NUM = 50
-TIME_MIN = 5
+TIME_MIN = 10
 TIME_MAX = 100
 
 if not hasattr(creator, "FitnessMin"):

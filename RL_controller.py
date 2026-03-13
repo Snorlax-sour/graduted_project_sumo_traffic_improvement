@@ -225,6 +225,8 @@ def main():
         read_ga_optimal_phases(GA_RESULT_PATH)
         if agent.load_model():
             print("✅ 找到上次訓練模型，將繼續訓練。")
+            # 🚀 加入這行，明確告訴自己已經覆寫成功！
+            print(f"🔥 [參數覆寫] 指揮官介入！Epsilon 強制設定為 {agent.exploration_rate}，衰減率 {agent.exploration_decay}")
         else:
             print("⚠️ 未找到模型檔案，將從頭開始訓練。")
     else: 
@@ -362,11 +364,11 @@ def main():
                     print(f"🔄 GA 接管中... 剩餘 {ga_override_cycles_left} 個週期", flush=True)
                     
                     if ga_override_cycles_left <= 0:
-                        # 👑 核心改動：給予 RL 5次機會 (20-5 = 15)
-                        # 如果原本掉分是 30，我們會把它強行拉回到 15
-                        continuous_reward_drop = 15 
+                        # 👑 核心改動：給予 RL 5次機會 (20-10 = 10)
+                        # 如果原本掉分是 30，我們會把它強行拉回到 10
+                        continuous_reward_drop = 10
                         
-                        print(f"✅ GA 示範結束，控制權交還。RL 進入「5次限制試用期」(目前掉分: {continuous_reward_drop}/20)", flush=True)
+                        print(f"✅ GA 示範結束，控制權交還。RL 進入「{20-continuous_reward_drop}次限制試用期」(目前掉分: {continuous_reward_drop}/20)", flush=True)
                         control_mode = "RL"
             last_phase = current_phase
             # ==========================================

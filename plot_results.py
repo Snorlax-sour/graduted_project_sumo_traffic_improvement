@@ -3,13 +3,15 @@ import argparse
 import matplotlib
 matplotlib.use('Agg') 
 import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches 
 import numpy as np 
 import glob
 
 def plot_log_data(log_file):
     steps, rewards, drops, epsilons = [], [], [], [] 
     ga_jam_periods, ga_penalty_periods = [], []
-    collision_count = 0  # 👑 新增車禍計數
+    collision_count = 0  
+    collision_times = []  
     is_test_mode = False 
     
     pending_jam, pending_penalty, pending_end = False, False, False
@@ -24,12 +26,15 @@ def plot_log_data(log_file):
     try:
         with open(log_file, 'r', encoding='utf-8') as f:
             for line in f:
-                # 自動判定模式
                 if "[TEST]" in line or "BASELINE" in log_file.upper() or "GATEST" in log_file.upper():
                     is_test_mode = True
 
+                # 抓到車禍標籤並提取發生時間
                 if "💥 [REAL_COLLISION]" in line:
-                    collision_count += 1  # 👑 抓到車禍標籤
+                    collision_count += 1
+                    col_match = re.search(r"Step:\s*(\d+)", line)
+                    if col_match:
+                        collision_times.append(int(col_match.group(1)))
 
                 end_match = end_pattern.search(line)
                 if end_match:
@@ -67,7 +72,7 @@ def plot_log_data(log_file):
         if jam_start: ga_jam_periods.append((jam_start, current_step))
         if penalty_start: ga_penalty_periods.append((penalty_start, current_step))
 
-        # Baseline 崩潰區間自動推算 (如果沒有 RL 標籤)
+        # Baseline 崩潰區間自動推算 
         if not has_rl_penalty_text and drops and max(drops) >= 20:
             ga_penalty_periods = [] 
             start_s = None
@@ -82,18 +87,74 @@ def plot_log_data(log_file):
             print(f"❌ 略過: [{log_file}] 數據不足。")
             return
 
+        # ================= 👑 車禍時間標註與【數量統計】分析 =================
+        collision_details = []
+        jam_col_cnt = 0  
+        pen_col_cnt = 0  
+
+        for c_time in collision_times:
+            tags = []
+            in_jam, in_pen = False, False
+            
+            # 比對紫色(下游癱瘓)
+            for i, (s, e) in enumerate(ga_jam_periods, 1):
+                if s <= c_time <= e:
+                    tags.append(f"紫色區塊 {i}")
+                    in_jam = True
+                    break
+                    
+            # 比對灰色(連續掉分)
+            for i, (s, e) in enumerate(ga_penalty_periods, 1):
+                if s <= c_time <= e:
+                    tags.append(f"灰色區塊 {i}")
+                    in_pen = True
+                    break
+            
+            # 統計累加
+            if in_jam: jam_col_cnt += 1
+            if in_pen: pen_col_cnt += 1
+
+            if tags:
+                collision_details.append(f"  🔸 車禍時間: {c_time}s ({' & '.join(tags)} 過程中發生)")
+            else:
+                collision_details.append(f"  🔸 車禍時間: {c_time}s (正常區間)")
+
+        collision_report_str = "\n".join(collision_details) if collision_details else "  無"
+
         # =================報告生成=================
         mode_str = "測試模式 (TEST)" if is_test_mode else "訓練模式 (TRAIN)"
         total_jam = sum(e - s for s, e in ga_jam_periods)
         total_pen = sum(e - s for s, e in ga_penalty_periods)
         
+        # 👑 新增：計算每個紫色區塊內的車禍數
+        jam_details_list = []
+        for s, e in ga_jam_periods:
+            cnt = sum(1 for c in collision_times if s <= c <= e)
+            jam_details_list.append(f"  🔸 第 {s}s ~ {e}s (持續 {e-s}s，區段內車禍發生次數：{cnt} 次)")
+        jam_details = "\n".join(jam_details_list) if jam_details_list else "  無"
+
+        # 👑 新增：計算每個灰色區塊內的車禍數
+        pen_details_list = []
+        for s, e in ga_penalty_periods:
+            cnt = sum(1 for c in collision_times if s <= c <= e)
+            pen_details_list.append(f"  🔸 第 {s}s ~ {e}s (持續 {e-s}s，區段內車禍發生次數：{cnt} 次)")
+        pen_details = "\n".join(pen_details_list) if pen_details_list else "  無"
+
         report_lines = [
             "="*60, f"📊 交通控制分析報告 - {mode_str}", f"📝 日誌: {log_file}",
             f"🏁 模擬耗時: {current_step} 秒" + (f" (提早結束於 {end_time}s)" if end_time else ""),
             "="*60,
-            f"🚨 下游癱瘓: {len(ga_jam_periods)} 次 | 總時長: {total_jam}s ({(total_jam/current_step)*100:.2f}%)",
-            f"📉 連續掉分: {len(ga_penalty_periods)} 次 | 總時長: {total_pen}s ({(total_pen/current_step)*100:.2f}%)",
-            f"💥 真實車禍: {collision_count} 次", # 👑 顯示在文字報告
+            f"🚨 下游癱瘓: {len(ga_jam_periods)} 次 | 總時長: {total_jam}s ({(total_jam/max(1, current_step))*100:.2f}%)",
+            "   [具體發生時間]:",
+            jam_details,
+            "-"*60,
+            f"📉 連續掉分: {len(ga_penalty_periods)} 次 | 總時長: {total_pen}s ({(total_pen/max(1, current_step))*100:.2f}%)",
+            "   [具體發生時間]:",
+            pen_details,
+            "-"*60,
+            f"💥 真實車禍: 共 {collision_count} 次 (灰色掉分區: {pen_col_cnt} 次 | 紫色癱瘓區: {jam_col_cnt} 次)", 
+            "   [具體車禍時間與狀態]:",
+            collision_report_str,
             "="*60
         ]
         full_report = "\n".join(report_lines)
@@ -115,7 +176,6 @@ def plot_log_data(log_file):
         ax2.plot(steps, drops, color='orange', label='Penalty Count')
         ax2.axhline(y=20, color='red', linestyle='--')
         
-        # 背景色塊
         for (s, e) in ga_jam_periods:
             ax1.axvspan(s, e, color='purple', alpha=0.15)
             ax2.axvspan(s, e, color='purple', alpha=0.15)
@@ -123,19 +183,33 @@ def plot_log_data(log_file):
             ax1.axvspan(s, e, color='gray', alpha=0.25)
             ax2.axvspan(s, e, color='gray', alpha=0.25)
 
-        # 👑 右側統計面板加強版
-        jam_pct = (total_jam/current_step)*100
-        pen_pct = (total_pen/current_step)*100
+        jam_patch = mpatches.Patch(color='purple', alpha=0.15, label='Downstream Jam (Purple)')
+        pen_patch = mpatches.Patch(color='gray', alpha=0.25, label='Penalty Period (Gray)')
+
+        jam_pct = (total_jam/max(1, current_step))*100
+        pen_pct = (total_pen/max(1, current_step))*100
         stats_text = (
             f"--- Stats ---\n"
             f"Steps: {current_step}s\n"
-            f"Collisions: {collision_count}\n" # 👑 顯示在圖表
+            f"Total Colls: {collision_count}\n" 
+            f"Colls(Gray): {pen_col_cnt}\n"
+            f"Colls(Purple): {jam_col_cnt}\n"
             f"Jam: {jam_pct:.1f}%\n"
             f"Penalty: {pen_pct:.1f}%"
         )
         ax1.text(1.04, 0.5, stats_text, transform=ax1.transAxes, bbox=dict(facecolor='whitesmoke', alpha=0.9))
 
-        ax1.legend(loc='upper left', bbox_to_anchor=(1.04, 1)); ax2.legend(loc='upper left', bbox_to_anchor=(1.04, 1))
+        handles1, labels1 = ax1.get_legend_handles_labels()
+        handles_twin, labels_twin = ax1_twin.get_legend_handles_labels()
+        ax1.legend(handles1 + handles_twin + [jam_patch, pen_patch], 
+                   labels1 + labels_twin + ['Downstream Jam (Purple)', 'Penalty Period (Gray)'], 
+                   loc='upper left', bbox_to_anchor=(1.04, 1))
+
+        handles2, labels2 = ax2.get_legend_handles_labels()
+        ax2.legend(handles2 + [jam_patch, pen_patch], 
+                   labels2 + ['Downstream Jam (Purple)', 'Penalty Period (Gray)'], 
+                   loc='upper left', bbox_to_anchor=(1.04, 1))
+
         plt.tight_layout(rect=[0, 0, 0.82, 1])
         plt.savefig(f'result_{log_file.replace(".txt", "")}.png', bbox_inches='tight')
         plt.close()
