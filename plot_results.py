@@ -19,15 +19,23 @@ def plot_log_data(log_file):
     current_step = 0
     end_time = None 
     has_rl_penalty_text = False 
+    final_reward = None  # 👑 新增：儲存最終累積獎勵
     
     pattern = re.compile(r"時間:\s*(\d+)s \| 綠燈.*? \| \d+秒獎勵:\s*(-?\d+\.\d+) \| 掉分:\s*(\d+)/20 \| Epsilon:\s*(\d+\.\d+)")
     end_pattern = re.compile(r"於第\s*(\d+)\s*秒提早結束") 
+    # 👑 新增正則表達式來抓取最終結算的獎勵
+    reward_pattern = re.compile(r"最終累積獎勵:\s*(-?\d+(?:\.\d+)?)")
 
     try:
         with open(log_file, 'r', encoding='utf-8') as f:
             for line in f:
                 if "[TEST]" in line or "BASELINE" in log_file.upper() or "GATEST" in log_file.upper():
                     is_test_mode = True
+
+                # 抓取最終累積獎勵
+                reward_match = reward_pattern.search(line)
+                if reward_match:
+                    final_reward = float(reward_match.group(1))
 
                 # 抓到車禍標籤並提取發生時間
                 if "💥 [REAL_COLLISION]" in line:
@@ -87,6 +95,10 @@ def plot_log_data(log_file):
             print(f"❌ 略過: [{log_file}] 數據不足。")
             return
 
+        # 👑 如果 Log 檔案裡面沒有印出「最終累積獎勵」，我們就自動幫它把所有收集到的 rewards 加總
+        if final_reward is None and rewards:
+            final_reward = sum(rewards)
+
         # ================= 👑 車禍時間標註與【數量統計】分析 =================
         collision_details = []
         jam_col_cnt = 0  
@@ -126,23 +138,26 @@ def plot_log_data(log_file):
         total_jam = sum(e - s for s, e in ga_jam_periods)
         total_pen = sum(e - s for s, e in ga_penalty_periods)
         
-        # 👑 新增：計算每個紫色區塊內的車禍數
+        # 計算每個紫色區塊內的車禍數
         jam_details_list = []
         for s, e in ga_jam_periods:
             cnt = sum(1 for c in collision_times if s <= c <= e)
             jam_details_list.append(f"  🔸 第 {s}s ~ {e}s (持續 {e-s}s，區段內車禍發生次數：{cnt} 次)")
         jam_details = "\n".join(jam_details_list) if jam_details_list else "  無"
 
-        # 👑 新增：計算每個灰色區塊內的車禍數
+        # 計算每個灰色區塊內的車禍數
         pen_details_list = []
         for s, e in ga_penalty_periods:
             cnt = sum(1 for c in collision_times if s <= c <= e)
             pen_details_list.append(f"  🔸 第 {s}s ~ {e}s (持續 {e-s}s，區段內車禍發生次數：{cnt} 次)")
         pen_details = "\n".join(pen_details_list) if pen_details_list else "  無"
 
+        final_reward_str = f"{final_reward:.2f}" if final_reward is not None else "未知"
+
         report_lines = [
             "="*60, f"📊 交通控制分析報告 - {mode_str}", f"📝 日誌: {log_file}",
             f"🏁 模擬耗時: {current_step} 秒" + (f" (提早結束於 {end_time}s)" if end_time else ""),
+            f"💰 最終累積獎勵: {final_reward_str}",  # 👑 顯示在報告頭部
             "="*60,
             f"🚨 下游癱瘓: {len(ga_jam_periods)} 次 | 總時長: {total_jam}s ({(total_jam/max(1, current_step))*100:.2f}%)",
             "   [具體發生時間]:",
@@ -188,9 +203,12 @@ def plot_log_data(log_file):
 
         jam_pct = (total_jam/max(1, current_step))*100
         pen_pct = (total_pen/max(1, current_step))*100
+        
+        # 👑 將最終獎勵加入圖片的 Stats 面板中
         stats_text = (
             f"--- Stats ---\n"
             f"Steps: {current_step}s\n"
+            f"Reward: {final_reward_str}\n" 
             f"Total Colls: {collision_count}\n" 
             f"Colls(Gray): {pen_col_cnt}\n"
             f"Colls(Purple): {jam_col_cnt}\n"
