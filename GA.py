@@ -166,7 +166,7 @@ def evaluate(individual):
                         if angle_diff > 180: angle_diff = 360 - angle_diff
                         
                         if angle_diff > 45 or coll.lane.startswith(':'):
-                            print(f"💥 [REAL_COLLISION] 本路口發生車禍! Step: {step} | Lane: {coll.lane}")
+                            print(f"💥 [REAL_COLLISION] 本路口發生車禍! PID: {os.getpid()} Step: {step} | Lane: {coll.lane}")
                             total_collision_count += 1  # 👑 紀錄發生次數
                             active_crashes[v1] = 60
                             active_crashes[v2] = 60
@@ -252,7 +252,23 @@ toolbox.register("select", tools.selTournament, tournsize=2)
 def main():
     print(f"主程序 PID {os.getpid()}: 啟動 GA 實例 ID: {GA_INSTANCE_ID}")
     print(f"📝 本次訓練日誌將自動寫入: {LOG_FILENAME}")
-
+    # =========================================================
+    # 👑 【新增】讀取跨世代的歷史最佳紀錄
+    # =========================================================
+    historical_best_delay = float('inf')
+    FINAL_RESULT_FILENAME = "./GA_best_result.csv"
+    if os.path.exists(FINAL_RESULT_FILENAME):
+        try:
+            with open(FINAL_RESULT_FILENAME, mode="r", encoding="utf-8") as f:
+                reader = csv.reader(f)
+                next(reader, None) # 跳過標題列
+                row = next(reader, None)
+                if row and len(row) >= 4:
+                    historical_best_delay = float(row[3])
+                    print(f"💾 成功載入歷史最佳紀錄：{historical_best_delay} 秒")
+        except Exception as e:
+            print(f"⚠️ 讀取歷史紀錄失敗，視為全新的開始: {e}")
+    # =========================================================
     now = datetime.datetime.now()
     timestamp = now.strftime("%Y-%m-%d_%H-%M-%S")
     filename = rf"./GA_{GA_INSTANCE_ID}__{timestamp}.csv"
@@ -332,14 +348,19 @@ def main():
                 no_improve_count = 0  # 有進步，計數重置
                 FINAL_RESULT_FILENAME = "./GA_best_result.csv" 
                 
-                try:
-                    # 📝 【修改 2】：寫入 GA_best_result.csv 的，永遠是「全局歷史 (HOF)」的最佳解
-                    with open(FINAL_RESULT_FILENAME, mode="w", newline="", encoding="utf-8") as final_f:
-                        final_writer = csv.writer(final_f)
-                        final_writer.writerow(["generation", "phase1", "phase2", "delay", "os_pid"])
-                        final_writer.writerow([gen + 1, global_best[0], global_best[1], f"{global_best.fitness.values[0]:.2f}", f"{os.getpid()}"])
-                except Exception as e:
-                    print(f"error write best csv file: {e}")
+                # 👑 【修改】只有當前成績超越「跨世代歷史紀錄」時，才覆寫檔案！
+                if current_best_fit < historical_best_delay:
+                    print(f"🎉 突破跨世代歷史紀錄！({historical_best_delay:.2f} 降至 {current_best_fit:.2f})，更新檔案！")
+                    historical_best_delay = current_best_fit  # 更新門檻值
+                    try:
+                        with open(FINAL_RESULT_FILENAME, mode="w", newline="", encoding="utf-8") as final_f:
+                            final_writer = csv.writer(final_f)
+                            final_writer.writerow(["generation", "phase1", "phase2", "delay", "os_pid"])
+                            final_writer.writerow([gen + 1, global_best[0], global_best[1], f"{global_best.fitness.values[0]:.2f}", f"{os.getpid()}"])
+                    except Exception as e:
+                        print(f"error write best csv file: {e}")
+                else:
+                    print(f"👍 本次訓練有進步 ({current_best_fit:.2f})，但尚未打破歷史紀錄 ({historical_best_delay:.2f})。")
             else:
                 no_improve_count += 1 # 沒進步，耐性扣點
                 
