@@ -9,7 +9,36 @@ from deap import base, creator, tools
 import random
 import csv
 import datetime
-import uuid # 【新增】用於產生絕對不重複的檔案名稱
+import uuid # 用於產生絕對不重複的檔案名稱
+
+# =====================================================================
+# 👑 新增：全局 Log 紀錄器 (攔截所有 print 並同時寫入終端機與 TXT)
+# =====================================================================
+# 使用環境變數鎖定啟動時間，確保多核心 Worker 不會因為秒差而建立出不同的檔案
+if "GA_START_TIME" not in os.environ:
+    os.environ["GA_START_TIME"] = datetime.datetime.now().strftime("%Y-%m-%d_%H%M")
+
+LOG_FILENAME = f"execute_GA_{os.environ['GA_START_TIME']}.txt"
+
+class DualLogger(object):
+    def __init__(self, filename):
+        self.terminal = sys.stdout
+        # 使用 "a" (append) 模式，讓多核心進程可以共同寫入同一個檔案
+        self.log = open(filename, "a", encoding="utf-8")
+
+    def write(self, message):
+        self.terminal.write(message)
+        self.log.write(message)
+        self.log.flush() # 強制即時寫入，避免多核心同時寫入時發生卡彈
+
+    def flush(self):
+        self.terminal.flush()
+        self.log.flush()
+
+# 將系統的標準輸出與錯誤輸出替換為我們的 DualLogger
+sys.stdout = DualLogger(LOG_FILENAME)
+sys.stderr = sys.stdout 
+# =====================================================================
 
 # --- 基礎設定與 SUMO 啟動 ---
 def get_sumo_home():
@@ -36,7 +65,7 @@ def get_total_delay(filename):
         tree = ET.parse(filename)
         root = tree.getroot()
     except (FileNotFoundError, ET.ParseError) as e:
-        print(f"[{os.getpid()}] 警告：無法解析 XML '{filename}' (錯誤: {e}). 返回極大延遲作為懲罰。", file=sys.stderr)
+        print(f"[{os.getpid()}] 警告：無法解析 XML '{filename}' (錯誤: {e}). 返回極大延遲作為懲罰。")
         return 999999.0 # 給予極大的懲罰值，讓 GA 淘汰這個壞個體
         
     total_waiting_time = 0.0
@@ -137,7 +166,7 @@ def evaluate(individual):
                         if angle_diff > 180: angle_diff = 360 - angle_diff
                         
                         if angle_diff > 45 or coll.lane.startswith(':'):
-                            print(f"💥 [REAL_COLLISION] 本路口發生車禍! Step: {step} | Lane: {coll.lane}", flush=True)
+                            print(f"💥 [REAL_COLLISION] 本路口發生車禍! Step: {step} | Lane: {coll.lane}")
                             total_collision_count += 1  # 👑 紀錄發生次數
                             active_crashes[v1] = 60
                             active_crashes[v2] = 60
@@ -166,10 +195,11 @@ def evaluate(individual):
                         # 一台車死鎖，我們就給這個基因組合「增加 500 秒」的等待時間！
                         total_deadlock_penalty += 500.0 
             # 👆👆👆 救災邏輯結束 👆👆👆
-        # 【修正 2：加入心跳監視器】
+            
+            # 【修正 2：加入心跳監視器】
             # 每模擬 500 步就回報一次，讓你知道它沒有死機
             if step % 500 == 0:
-                print(f"[PID {pid}] 正在執行模擬... 第 {step}/{MAX_SIM_STEPS} 步 (剩餘車輛: {conn.simulation.getMinExpectedNumber()})", flush=True)
+                print(f"[PID {pid}] 正在執行模擬... 第 {step}/{MAX_SIM_STEPS} 步 (剩餘車輛: {conn.simulation.getMinExpectedNumber()})")
 
         # 【修復 2】：非常關鍵！必須先關閉連線，SUMO 才會把 XML 寫完！
         conn.close()
@@ -182,7 +212,7 @@ def evaluate(individual):
         return (final_penalty_score,)
             
     except Exception as e:
-        print(f"Error in PID {pid}: {e}", flush=True)
+        print(f"Error in PID {pid}: {e}")
         return (999999.0,) 
     finally:
         # 【修復 4】：確保連線一定被關閉，並且強制刪除垃圾檔案
@@ -220,7 +250,8 @@ toolbox.register("select", tools.selTournament, tournsize=2)
 
 # 【修復 5】：主程式保護！這在 Windows 使用多核心是必備的
 def main():
-    print(f"主程序 PID {os.getpid()}: 啟動 GA 實例 ID: {GA_INSTANCE_ID}", flush=True)
+    print(f"主程序 PID {os.getpid()}: 啟動 GA 實例 ID: {GA_INSTANCE_ID}")
+    print(f"📝 本次訓練日誌將自動寫入: {LOG_FILENAME}")
 
     now = datetime.datetime.now()
     timestamp = now.strftime("%Y-%m-%d_%H-%M-%S")
@@ -237,11 +268,11 @@ def main():
     # 設定只記憶 1 個歷史表現最好的絕對菁英
     hof = tools.HallOfFame(1) 
 
-    print(f"\n🔁 開始進行 GA 訓練...\n", flush=True)
+    print(f"\n🔁 開始進行 GA 訓練...\n")
 
     # 開啟多核心運算
     with concurrent.futures.ProcessPoolExecutor() as executor:
-        print(f"\n🔁 開始評估初始群體 (第 0 代)，共 {POP_SIZE} 個體 (多核心加速中...)\n" ,flush=True)
+        print(f"\n🔁 開始評估初始群體 (第 0 代)，共 {POP_SIZE} 個體 (多核心加速中...)\n")
         
         fitnesses = list(executor.map(toolbox.evaluate, pop))
         for ind, fit in zip(pop, fitnesses):
@@ -251,7 +282,7 @@ def main():
         hof.update(pop)
         first_values = hof[0].fitness.values[0] # 記錄初始群體的全局最佳
             
-        print(f"✅ Gen 0 初始群體評估完成！\n", flush=True)
+        print(f"✅ Gen 0 初始群體評估完成！\n")
         PATIENCE = 10  # 耐性值：如果連續 10 代沒進步就停
         no_improve_count = 0
         best_fitness_so_far = float('inf')
@@ -270,7 +301,7 @@ def main():
                     del mutant.fitness.values
 
             invalid_ind = [ind for ind in offspring if not ind.fitness.valid]
-            print(f"🔄 第 {gen+1} 代：開始評估 {len(invalid_ind)} 個新個體 (多核心加速中...)", flush=True)
+            print(f"🔄 第 {gen+1} 代：開始評估 {len(invalid_ind)} 個新個體 (多核心加速中...)")
             
             new_fitnesses = list(executor.map(toolbox.evaluate, invalid_ind))
             
@@ -289,8 +320,8 @@ def main():
             csv_file.flush()
             global_best = hof[0]                          # 歷史以來最好的一個
 
-            print(f"第 {gen+1} 代 當代最佳組合：{current_gen_best}, 等待時間：{current_gen_best.fitness.values[0]:.2f} 秒", flush=True)
-            print(f"第 {gen+1} 代 歷史最佳組合：{global_best}, 最小等待時間：{global_best.fitness.values[0]:.2f} 秒", flush=True)
+            print(f"第 {gen+1} 代 當代最佳組合：{current_gen_best}, 等待時間：{current_gen_best.fitness.values[0]:.2f} 秒")
+            print(f"第 {gen+1} 代 歷史最佳組合：{global_best}, 最小等待時間：{global_best.fitness.values[0]:.2f} 秒")
 
             # 檢查是否有進步
             current_best_fit = hof[0].fitness.values[0]
@@ -300,9 +331,7 @@ def main():
                 best_fitness_so_far = current_best_fit
                 no_improve_count = 0  # 有進步，計數重置
                 FINAL_RESULT_FILENAME = "./GA_best_result.csv" 
-                # 📝 【修改 1】：寫入歷程檔的，永遠是「當代」的最佳組合與延遲
                 
-
                 try:
                     # 📝 【修改 2】：寫入 GA_best_result.csv 的，永遠是「全局歷史 (HOF)」的最佳解
                     with open(FINAL_RESULT_FILENAME, mode="w", newline="", encoding="utf-8") as final_f:
@@ -310,13 +339,15 @@ def main():
                         final_writer.writerow(["generation", "phase1", "phase2", "delay", "os_pid"])
                         final_writer.writerow([gen + 1, global_best[0], global_best[1], f"{global_best.fitness.values[0]:.2f}", f"{os.getpid()}"])
                 except Exception as e:
-                    print(f"error write best csv file: {e}", flush=True)
+                    print(f"error write best csv file: {e}")
             else:
                 no_improve_count += 1 # 沒進步，耐性扣點
                 
             print(f"第 {gen+1} 代，連續未進步：{no_improve_count}/{PATIENCE}")
+            
             # 🌟 【加入這一段：打破近親繁殖的僵局】🌟
-            if no_improve_count % 4 == 0:  # 如果連續 4 代沒進步，代表基因庫可能死水了
+            # 👑 【修復】：加上 > 0，防止第 5 代破紀錄時 (0 % 4 == 0) 錯誤滅絕王者！
+            if no_improve_count > 0 and no_improve_count % 4 == 0:  
                 print(f"⚠️ 偵測到基因庫同質化，保留歷史最強，其餘重新隨機生成！")
                 # 保留歷史上最強的那一個 (HOF)
                 elite = toolbox.clone(hof[0])
@@ -329,8 +360,6 @@ def main():
                 print(f" [!] 偵測到演算法已收斂，提前停止於第 {gen+1} 代。")
                 break
            
-
-            
 
     # 輸出結果
     final_global_best = hof[0]
