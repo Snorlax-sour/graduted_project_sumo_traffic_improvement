@@ -59,16 +59,17 @@ GA_OPTIMAL_PHASES = read_ga_optimal_phases(GA_RESULT_PATH)
 def get_state(tls_id):
     lanes = traci.trafficlight.getControlledLanes(tls_id)
     unique_lanes = list(set(lanes))
-    queue_lengths = [traci.lane.getLastStepHaltingNumber(lane) for lane in unique_lanes]
+    
+    # 1. 靜止排隊車輛 (AI 知道哪裡在塞車)
+    halting_counts = [traci.lane.getLastStepHaltingNumber(lane) for lane in unique_lanes]
+    # 2. 👑 新增：車道上的總車輛數 (AI 才會看到正在衝過來的車流！)
+    total_vehicles = [traci.lane.getLastStepVehicleNumber(lane) for lane in unique_lanes]
+    
     current_phase = traci.trafficlight.getPhase(tls_id)
-    GA_min_time_suggestion = 0.0
+    GA_min_time_suggestion = GA_OPTIMAL_PHASES[0] if current_phase == 0 else GA_OPTIMAL_PHASES[1]
     
-    if current_phase == 0:  
-        GA_min_time_suggestion = GA_OPTIMAL_PHASES[0]
-    elif current_phase == 2: 
-        GA_min_time_suggestion = GA_OPTIMAL_PHASES[1]
-    
-    state_list = queue_lengths + [current_phase] + [GA_min_time_suggestion]
+    # 把這兩組數據合併交給 AI
+    state_list = halting_counts + total_vehicles + [current_phase, GA_min_time_suggestion]
     return tuple(state_list)
 
 def get_total_queue_length(tls_id):
