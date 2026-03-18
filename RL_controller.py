@@ -13,6 +13,7 @@ GA_RESULT_PATH = "./GA_best_result.csv"
 # last_total_waiting_time = 0.0 utils replace
 # last_total_queue_length = 0.0
 last_total_cumulative_waiting_time = 0.0
+
 # 👑 【新增函數】：管理訓練次數的讀取與寫入
 def get_and_update_training_stats(instance_id, increment=False):
     stats_file = f"stats_{instance_id}.json"
@@ -31,7 +32,6 @@ def get_and_update_training_stats(instance_id, increment=False):
             json.dump(data, f)
             
     return data["training_count"]
-
 
 def read_ga_optimal_phases(csv_filepath):
     DEFAULT_PHASES = [35.0, 25.0] 
@@ -56,8 +56,6 @@ def read_ga_optimal_phases(csv_filepath):
     
 GA_OPTIMAL_PHASES = read_ga_optimal_phases(GA_RESULT_PATH)
 
-
-
 def get_state(tls_id):
     lanes = traci.trafficlight.getControlledLanes(tls_id)
     unique_lanes = list(set(lanes))
@@ -72,7 +70,6 @@ def get_state(tls_id):
     
     state_list = queue_lengths + [current_phase] + [GA_min_time_suggestion]
     return tuple(state_list)
-
 
 def get_total_queue_length(tls_id):
     try:
@@ -143,107 +140,56 @@ def parse_arguments():
         instance_id = "default_id"
     return mode, instance_id
 
-def main():
-    mode, instance_id = parse_arguments()
-    is_train_mode = (mode == 'train')
-    # 👑 讀取目前的訓練次數
-    current_train_count = get_and_update_training_stats(instance_id, increment=False)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M")
-    log_filename = f"execute_RL_{timestamp}_{instance_id}_{mode}.txt"
-
-    # 👑 Logger 機制
-    class Logger(object):
-        def __init__(self, filename):
-            self.terminal = sys.stdout
-            self.log = open(filename, "w", encoding='utf-8')
-        def write(self, message):
-            self.terminal.write(message)
-            self.log.write(message)
-        def flush(self):
-            self.terminal.flush()
-            self.log.flush()
-            
-    sys.stdout = Logger(log_filename)
-
-    print_usage() 
-
-    print("\n" + "#"*55)
-    print(f"🚀 啟動模式: {mode.upper()}")
-    print(f"⏰ 開始時間: {timestamp}")
-    print(f"🆔 實例 ID : {instance_id}")
-    print(f"🎓 訓練次數: 第 {current_train_count} 次經驗") # 👑 啟動時印出
-    print(f"📝 日誌檔案: {log_filename}")
-    print("#"*55 + "\n")
+# ==============================================================================
+# 👑 【核心重構】：獨立出單局執行的函數，讓外面可以跑迴圈
+# ==============================================================================
+def run_single_episode(episode_num, agent, sumoCmd, is_train_mode, instance_id, mode_label):
+    print(f"\n" + "-"*55)
+    print(f"🏁 正在啟動第 {episode_num} 局模擬 (Episode {episode_num}) ...")
+    print("-"*55)
     
-    active_crashes = {}
+    # 1. 啟動 SUMO 模擬器
+    traci.start(sumoCmd)
+    
+    # 2. 🚨 致命關鍵：每局開始前務必重置全域變數，避免分數被上一局干擾！
+    sumo_utils.reset_global_state()
+    
+    # 3. 初始化單局的變數
     TRAFFIC_LIGHT_ID = "1253678773"
-    SUMO_CONFIG_FILE = "osm.sumocfg"
     MAX_SIMULATION_STEPS = 8000
     MIN_GREEN_TIME = 10 
     ACTION_INTERVAL = 10 
+    STOP_THRESHOLD = 10  
     
-    ACTION_SPACE = [0, 1]
-
-    print(f"使用的 RL 實例 ID (instance_id): {instance_id}")
-    agent = DQNAgent(state_size=6, action_space=ACTION_SPACE, instance_id=instance_id) 
-
-    if is_train_mode:
-        print("💡 模式：DQN 訓練模式 (Train Mode)。")
-        read_ga_optimal_phases(GA_RESULT_PATH)
-        if agent.load_model():
-            print("✅ 找到上次訓練模型，將繼續訓練。")
-            # 🚀 加入這行，明確告訴自己已經覆寫成功！
-            print(f"🔥 [參數覆寫] 指揮官介入！Epsilon 強制設定為 {agent.exploration_rate}，衰減率 {agent.exploration_decay}")
-        else:
-            print("⚠️ 未找到模型檔案，將從頭開始訓練。")
-    else: 
-        print("💡 模式：DQN 測試模式 (Test Mode)。")
-        if not agent.load_model():
-            print(f"\n❌ 警告：測試模式下未能找到已訓練的模型檔案。")
-            sys.exit(1) 
-        agent.exploration_rate = 0.0 
-        print(f"✅ 模型載入成功。探索率 Epsilon 鎖定為 0。")
-        
-    if not sumo_utils.get_sumo_home():
-        sys.exit(1)
-        
-    sim_seed = 42 if is_train_mode else 100 
-    sumoCmd = sumo_utils.build_sumo_cmd(
-        config_file=SUMO_CONFIG_FILE,
-        use_gui=(not is_train_mode),  # 測試模式開 GUI，訓練模式不開
-        tripinfo_file=f"tripinfo_RL_{instance_id}.xml",
-        seed=sim_seed,
-        time_to_teleport="3600",
-        quiet=False  # 原本 RL 模式就沒有特別隱藏 log，保持 False
-    )
-    traci.start(sumoCmd)
-    sumo_utils.reset_global_state()
     step = 0
     cumulative_reward = 0.0
-    logics = traci.trafficlight.getAllProgramLogics(TRAFFIC_LIGHT_ID)
-    num_phases = len(logics[0].phases) if logics else 4
-    # 👑 在 main 裡面先取得受控路口的所有車道清單
-    controlled_lanes = set(traci.trafficlight.getControlledLanes(TRAFFIC_LIGHT_ID))
-    step_collision_counter = 0 # 用於每 10 秒結算一次
-    lanes = traci.trafficlight.getControlledLanes(TRAFFIC_LIGHT_ID)
-    agent.state_size = len(list(set(lanes))) + 2
-    agent.build_models() 
-    step_collision_counter = 0 # 用於每 10 秒結算一次
+    active_crashes = {}
+    step_collision_counter = 0 
     time_in_current_phase = 0    
     target_phase_duration = 0    
     last_state = None            
     last_action = None           
-
     control_mode = "RL"               
     continuous_reward_drop = 0        
     ga_override_cycles_left = 0       
     last_phase = -1                   
-    mode_label = "[TRAIN]" if is_train_mode else "[TEST]"
     empty_step_counter = 0
-    STOP_THRESHOLD = 10  
-    
+
+    # 取得路口資訊並確認模型是否已建立
+    logics = traci.trafficlight.getAllProgramLogics(TRAFFIC_LIGHT_ID)
+    num_phases = len(logics[0].phases) if logics else 4
     current_phase = traci.trafficlight.getPhase(TRAFFIC_LIGHT_ID)
     
+    # 動態調整 State Size (如果還沒建立過 Model)
+    if not hasattr(agent, "is_built") or not agent.is_built:
+        lanes = traci.trafficlight.getControlledLanes(TRAFFIC_LIGHT_ID)
+        agent.state_size = len(list(set(lanes))) + 2
+        agent.build_models()
+        agent.is_built = True
+
+    # ==========================================
+    # 🏃 進入時間步進迴圈 (單局開始)
+    # ==========================================
     while step < MAX_SIMULATION_STEPS:
         try:
             traci.simulationStep()
@@ -258,13 +204,9 @@ def main():
                 empty_step_counter = 0  
                 
             # 偵測碰撞
-            collisions = sumo_utils.detect_real_collisions(TRAFFIC_LIGHT_ID,active_crashes,step)
+            collisions = sumo_utils.detect_real_collisions(TRAFFIC_LIGHT_ID, active_crashes, step)
             step_collision_counter += collisions
-
-               
-
             sumo_utils.update_crash_vehicles(active_crashes)
-
             deadlock_penalty = sumo_utils.handle_deadlock_vehicles(deadlock_threshold=90)
                         
             new_phase = traci.trafficlight.getPhase(TRAFFIC_LIGHT_ID)
@@ -286,12 +228,11 @@ def main():
                     
                     if ga_override_cycles_left <= 0:
                         # 👑 核心改動：給予 RL 5次機會 (20-10 = 10)
-                        # 如果原本掉分是 30，我們會把它強行拉回到 10
                         continuous_reward_drop = 10
-                        
                         print(f"✅ GA 示範結束，控制權交還。RL 進入「{20-continuous_reward_drop}次限制試用期」(目前掉分: {continuous_reward_drop}/20)", flush=True)
                         control_mode = "RL"
             last_phase = current_phase
+            
             # ==========================================
             # 🟢 綠燈決策階段
             # ==========================================
@@ -303,8 +244,7 @@ def main():
                         current_state = get_state(TRAFFIC_LIGHT_ID)
 
                         if last_state is not None:
-                            # 傳入這段期間發生的車禍總數
-                            # call 錯function
+                            # 🚨 修正：已改回正確的 calculate_reward
                             reward, _ = sumo_utils.calculate_reward(TRAFFIC_LIGHT_ID, step_collision_counter, time_in_current_phase)
                             step_collision_counter = 0 # 👑 結算後歸零
                             reward += deadlock_penalty
@@ -325,9 +265,8 @@ def main():
                                         print(f"📉 RL 連續負獎勵 {continuous_reward_drop} 次，觸發 GA 保護機制！", flush=True)
                                         control_mode = "GA"
                                         ga_override_cycles_left = 3
-                                        # 🚨 同樣移除這裡的歸零邏輯
                                 else:
-                                    # 👑 只要拿到一次正獎勵，代表 RL 找到解法了，立刻恢復完整權限
+                                    # 👑 只要拿到一次正獎勵，立刻恢復完整權限
                                     if continuous_reward_drop > 0:
                                         print(f"🌟 RL 表現回升 (Reward > 0)，正式通過試用期，掉分紀錄歸零。", flush=True)
                                     continuous_reward_drop = 0
@@ -365,7 +304,6 @@ def main():
                         if reward < 0:
                             continuous_reward_drop += 1
                         else:
-                            # 只有 GA 真的排解了壅塞（拿到正獎勵），才算是「真的好了」
                             continuous_reward_drop = 0
                             
                         print(f"{mode_label} 🧬 [GA] 時間: {step}s | 綠燈: {time_in_current_phase}s / {ga_dur}s | {ACTION_INTERVAL}秒獎勵: {reward:.2f} | 掉分: {continuous_reward_drop}/20 | Epsilon: {agent.exploration_rate:.3f} | 狀態: '{phase_state}'", flush=True)
@@ -396,37 +334,124 @@ def main():
                         traci.trafficlight.setPhaseDuration(TRAFFIC_LIGHT_ID, 10000)
 
         except traci.TraCIException:
-            print("SUMO 連線中斷，提前結束迴圈。")
+            print("SUMO 連線中斷，提前結束單局迴圈。")
             break
             
-    print("正在關閉模擬...")
+    print(f"正在關閉第 {episode_num} 局模擬...")
     traci.close()
     
+    # 4. 單局結束後的存檔動作
     if is_train_mode:
         agent.save_model() 
-        # 👑 訓練完成後，更新紀錄檔中的次數！
         new_count = get_and_update_training_stats(instance_id, increment=True)
-        print(f"\n✅ 訓練完成！次數已從 {current_train_count} 更新為 {new_count}。")
-        try:
-            notification.notify(
-                title = "Python RL Trainning Finish",
-                message = f"RUN PID: {os.getpid()}, MODEL ID= {instance_id}" ,
-                timeout=10 
-            )
-        except: pass
+        print(f"✅ 第 {episode_num} 局訓練完成並存檔！(累積總經驗次數: {new_count})")
+        print(f"📊 本局最終累積獎勵: {cumulative_reward:.2f}")
     else:
-        print(f"\n✅ 測試完成！使用的模型 ID: {instance_id}")
-        print(f"模擬總步數: {step}")
-        print(f"最終累積獎勵: {cumulative_reward:.2f}")
-        try:
-            notification.notify(
-                title = "Python RL TEST Finish",
-                message = f"RUN PID: {os.getpid()}, MODEL ID= {instance_id}" ,
-                timeout=10 
-            )
-        except: pass
+        print(f"✅ 第 {episode_num} 局測試完成！")
+        print(f"📊 模擬總步數: {step}")
+        print(f"📊 本局最終累積獎勵: {cumulative_reward:.2f}")
+        
+    return cumulative_reward
+
+# ==============================================================================
+# 🚀 主程式 (負責準備環境與控制迴圈)
+# ==============================================================================
+def main():
+    sumo_utils.get_sumo_home()
+    mode, instance_id = parse_arguments()
+    is_train_mode = (mode == 'train')
+    
+    current_train_count = get_and_update_training_stats(instance_id, increment=False)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+    log_filename = f"execute_RL_{timestamp}_{instance_id}_{mode}.txt"
+
+    # 👑 Logger 機制
+    class Logger(object):
+        def __init__(self, filename):
+            self.terminal = sys.stdout
+            self.log = open(filename, "w", encoding='utf-8')
+        def write(self, message):
+            self.terminal.write(message)
+            self.log.write(message)
+        def flush(self):
+            self.terminal.flush()
+            self.log.flush()
+            
+    sys.stdout = Logger(log_filename)
+    print_usage() 
+
+    print("\n" + "#"*55)
+    print(f"🚀 啟動模式: {mode.upper()}")
+    print(f"⏰ 開始時間: {timestamp}")
+    print(f"🆔 實例 ID : {instance_id}")
+    if is_train_mode:
+        print(f"🎓 歷史訓練次數: 已經歷過 {current_train_count} 局經驗") 
+    print(f"📝 日誌檔案: {log_filename}")
+    print("#"*55 + "\n")
+    
+    SUMO_CONFIG_FILE = "osm.sumocfg"
+    ACTION_SPACE = [0, 1]
+
+    # 👑 1. 建立 Agent (只建立一次，確保 memory 不會被洗掉)
+    print(f"使用的 RL 實例 ID (instance_id): {instance_id}")
+    agent = DQNAgent(state_size=6, action_space=ACTION_SPACE, instance_id=instance_id) 
+
+    # 👑 2. 載入模型權重
+    if is_train_mode:
+        print("💡 模式：DQN 訓練模式 (Train Mode)。")
+        read_ga_optimal_phases(GA_RESULT_PATH)
+        if agent.load_model():
+            print("✅ 找到上次訓練模型，將繼續訓練。")
+            print(f"🔥 [參數繼承] 讀取 Epsilon: {agent.exploration_rate:.4f}，衰減率 {agent.exploration_decay}")
+        else:
+            print("⚠️ 未找到模型檔案，將從頭開始訓練。")
+    else: 
+        print("💡 模式：DQN 測試模式 (Test Mode)。")
+        if not agent.load_model():
+            print(f"\n❌ 警告：測試模式下未能找到已訓練的模型檔案。")
+            sys.exit(1) 
+        agent.exploration_rate = 0.0 
+        print(f"✅ 模型載入成功。探索率 Epsilon 鎖定為 0。")
+        
+    # 👑 3. 準備 SUMO 指令
+    sim_seed = 42 if is_train_mode else 100 
+    sumoCmd = sumo_utils.build_sumo_cmd(
+        config_file=SUMO_CONFIG_FILE,
+        use_gui=(not is_train_mode), 
+        tripinfo_file=f"tripinfo_RL_{instance_id}.xml",
+        seed=sim_seed,
+        time_to_teleport="3600",
+        quiet=False 
+    )
+    
+    mode_label = "[TRAIN]" if is_train_mode else "[TEST]"
+
+    # ==========================================
+    # 👑 4. 執行迴圈：精神時光屋啟動！
+    # ==========================================
+    if is_train_mode:
+        TOTAL_EPISODES = 30  # 🎯 這裡可以自由調整你想連續訓練幾局
+        print(f"🔥 [啟動精神時光屋] 準備連續訓練 {TOTAL_EPISODES} 局！")
+        
+        for episode in range(1, TOTAL_EPISODES + 1):
+            run_single_episode(episode, agent, sumoCmd, is_train_mode, instance_id, mode_label)
+            
+        print(f"\n🎉 精神時光屋 {TOTAL_EPISODES} 局訓練全數完成！")
+        
+    else:
+        # 測試模式只跑 1 局
+        run_single_episode(1, agent, sumoCmd, is_train_mode, instance_id, mode_label)
+        
+    # 👑 5. 全部結束後，發送電腦通知
+    try:
+        notify_title = "Python RL Trainning Finish" if is_train_mode else "Python RL TEST Finish"
+        notification.notify(
+            title = notify_title,
+            message = f"RUN PID: {os.getpid()}, MODEL ID= {instance_id}" ,
+            timeout=10 
+        )
+    except: pass
 
 if __name__ == "__main__":
-    sumo_utils.get_sumo_home()
     main()
     print("程式執行完畢！")

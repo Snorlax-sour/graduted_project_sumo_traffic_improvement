@@ -134,6 +134,7 @@ def main():
     # 👑 在 main 裡面先取得受控路口的所有車道清單
     controlled_lanes = set(traci.trafficlight.getControlledLanes(TRAFFIC_LIGHT_ID))
     step_collision_counter = 0 # 用於每 10 秒結算一次
+    continuous_reward_drop = 0  # 👈 新增這個初始化（在 while 前面）
     while step < MAX_SIMULATION_STEPS:
         try:
             traci.simulationStep()
@@ -169,7 +170,6 @@ def main():
                 reward, _ = sumo_utils.calculate_reward(TRAFFIC_LIGHT_ID, step_collision_counter, time_in_current_phase)
                 step_collision_counter = 0 # 歸零
                 reward += deadlock_penalty 
-                continuous_reward_drop = 0  # 👈 新增這個初始化（在 while 前面）
                 cumulative_reward += reward
                 phase_state = traci.trafficlight.getRedYellowGreenState(TRAFFIC_LIGHT_ID)
                 

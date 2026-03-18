@@ -107,14 +107,16 @@ def evaluate(individual):
         
         if not orig_phase2_state:
             orig_phase2_state = orig_phase0_state.replace('G', 'r').replace('g', 'r').replace('r', 'G')
-
+        # 👑 動態抓取原本路口的黃燈/過渡期秒數 (如果有設定的話，否則預設給 3 秒)
+        orig_yellow_dur1 = default_logic.phases[1].duration if len(default_logic.phases) > 1 else 3.0
+        orig_yellow_dur2 = default_logic.phases[3].duration if len(default_logic.phases) > 3 else 3.0
         logic = Logic(
             programID="ga_prog",
             phases=[            
                 Phase(individual[0], orig_phase0_state),
-                Phase(3, default_logic.phases[1].state if len(default_logic.phases) > 1 else orig_phase0_state.replace('G', 'y')),
+                Phase(orig_yellow_dur1, default_logic.phases[1].state if len(default_logic.phases) > 1 else orig_phase0_state.replace('G', 'y')),
                 Phase(individual[1], orig_phase2_state), 
-                Phase(3, default_logic.phases[3].state if len(default_logic.phases) > 3 else orig_phase2_state.replace('G', 'y'))
+                Phase(orig_yellow_dur2, default_logic.phases[3].state if len(default_logic.phases) > 3 else orig_phase2_state.replace('G', 'y'))
             ],
             type=0,
             currentPhaseIndex=0
