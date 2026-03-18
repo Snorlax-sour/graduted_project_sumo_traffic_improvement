@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<!-- generated on 2026-03-18T19:57:39.224737+08:00 by Eclipse SUMO GUI 1.26.0
+<!-- generated on 2026-03-18T20:12:40.202220+08:00 by Eclipse SUMO GUI 1.26.0
 <sumoConfiguration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/sumoConfiguration.xsd">
 
     <input>
@@ -10,7 +10,7 @@
     </input>
 
     <output>
-        <tripinfo-output value="tripinfo_RL_default_id.xml"/>
+        <tripinfo-output value="tripinfo_RL_20260318.xml"/>
         <statistic-output value="stats.xml"/>
     </output>
 
@@ -36,7 +36,7 @@
     </report>
 
     <traci_server>
-        <remote-port value="42757"/>
+        <remote-port value="35359"/>
     </traci_server>
 
     <random_number>

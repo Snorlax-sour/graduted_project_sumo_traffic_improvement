@@ -5,11 +5,13 @@ import os
 from DQN_RL_Agent import DQNAgent 
 import csv 
 from plyer import notification 
-from datetime import datetime  
+from datetime import datetime 
+#  👇 新增這行：匯入共用工具模組
+import sumo_utils 
 
 GA_RESULT_PATH = "./GA_best_result.csv"
-last_total_waiting_time = 0.0
-last_total_queue_length = 0.0
+# last_total_waiting_time = 0.0 utils replace
+# last_total_queue_length = 0.0
 last_total_cumulative_waiting_time = 0.0
 # 👑 【新增函數】：管理訓練次數的讀取與寫入
 def get_and_update_training_stats(instance_id, increment=False):
@@ -54,13 +56,7 @@ def read_ga_optimal_phases(csv_filepath):
     
 GA_OPTIMAL_PHASES = read_ga_optimal_phases(GA_RESULT_PATH)
 
-def get_sumo_home():
-    if 'SUMO_HOME' in os.environ:
-        tools = os.path.join(os.environ['SUMO_HOME'], 'tools')
-        sys.path.append(tools)
-        return True
-    else:
-        sys.exit("請確認 SUMO_HOME 環境變數已設定！")
+
 
 def get_state(tls_id):
     lanes = traci.trafficlight.getControlledLanes(tls_id)
@@ -77,35 +73,6 @@ def get_state(tls_id):
     state_list = queue_lengths + [current_phase] + [GA_min_time_suggestion]
     return tuple(state_list)
 
-def calculate_reward(tls_id, collision_count=0):
-    try:
-        lanes = traci.trafficlight.getControlledLanes(tls_id)
-        unique_lanes = list(set(lanes))
-        current_total_waiting_time = 0.0
-        for lane in unique_lanes:
-            vehicle_ids = traci.lane.getLastStepVehicleIDs(lane)
-            for veh_id in vehicle_ids:
-                current_total_waiting_time += traci.vehicle.getWaitingTime(veh_id)
-        # 👑 新增：車禍重罰 (例如一次撞擊扣 1000 分)
-        penalty_collision = collision_count * 1000.0
-        global last_total_waiting_time
-        delta_delay = last_total_waiting_time - current_total_waiting_time
-        delta_delay *= -1
-        current_total_queue_length  = get_total_queue_length(tls_id)
-        penalty_waiting = current_total_waiting_time * 0.1 
-        penalty_queue = 0.5 * (current_total_queue_length ** 2)
-        delta_delay = current_total_waiting_time - last_total_waiting_time
-        penalty_delta = max(0, delta_delay) * 2.0
-        reward = -(penalty_waiting + penalty_queue + penalty_delta + penalty_collision)
-        last_total_waiting_time = current_total_waiting_time
-        return reward, current_total_waiting_time
-            
-    except traci.TraCIException:  
-        return 0.0, 0.0 
-    except AttributeError as e:
-        return calculate_reward_queue_fallback(tls_id)
-    except Exception as e_general:
-        return 0.0, 0.0
 
 def get_total_queue_length(tls_id):
     try:
@@ -237,23 +204,20 @@ def main():
         agent.exploration_rate = 0.0 
         print(f"✅ 模型載入成功。探索率 Epsilon 鎖定為 0。")
         
-    if not get_sumo_home():
+    if not sumo_utils.get_sumo_home():
         sys.exit(1)
         
     sim_seed = 42 if is_train_mode else 100 
-    sumo_binary = "sumo" if is_train_mode else "sumo-gui"
-    sumoCmd = [
-        sumo_binary, "-c", SUMO_CONFIG_FILE,
-        "--time-to-teleport", "3600",
-        "--tripinfo-output", f"tripinfo_RL_{instance_id}.xml",
-        "--seed", str(sim_seed),
-        "--lateral-resolution", "0.05" ,
-        "--collision.mingap-factor", "0", 
-        "--collision.action", "warn",
-        "--collision.check-junctions", "true", # 加強路口判定
-    ]
+    sumoCmd = sumo_utils.build_sumo_cmd(
+        config_file=SUMO_CONFIG_FILE,
+        use_gui=(not is_train_mode),  # 測試模式開 GUI，訓練模式不開
+        tripinfo_file=f"tripinfo_RL_{instance_id}.xml",
+        seed=sim_seed,
+        time_to_teleport="3600",
+        quiet=False  # 原本 RL 模式就沒有特別隱藏 log，保持 False
+    )
     traci.start(sumoCmd)
-    
+    sumo_utils.reset_global_state()
     step = 0
     cumulative_reward = 0.0
     logics = traci.trafficlight.getAllProgramLogics(TRAFFIC_LIGHT_ID)
@@ -294,57 +258,14 @@ def main():
                 empty_step_counter = 0  
                 
             # 偵測碰撞
-            collisions = traci.simulation.getCollisions()
-            for coll in collisions:
-                v1, v2 = coll.collider, coll.victim
-                if v1 not in active_crashes and v2 not in active_crashes:
-                    
-                    # 👑 【精準過濾】：判斷車禍車道是否屬於本路口
-                    is_my_junction = False
-                    if coll.lane in controlled_lanes: # 車道在路口進入端
-                        is_my_junction = True
-                    elif coll.lane.startswith(':'): # 發生在路口內部 (Internal Lane)
-                        # 內部車道名稱通常包含路口 ID，例如 :1253678773_0_0
-                        if TRAFFIC_LIGHT_ID in coll.lane:
-                            is_my_junction = True
-                    
-                    if not is_my_junction:
-                        continue # 👑 別處撞車，與我無關，跳過
-
-                    try:
-                        angle1, angle2 = traci.vehicle.getAngle(v1), traci.vehicle.getAngle(v2)
-                        angle_diff = abs(angle1 - angle2) % 360
-                        if angle_diff > 180: angle_diff = 360 - angle_diff
-                        
-                        if angle_diff > 45 or coll.lane.startswith(':'):
-                            print(f"💥 [REAL_COLLISION] 本路口發生車禍! Step: {step} | Lane: {coll.lane}", flush=True)
-                            step_collision_counter += 1 # 👑 累加給 reward 扣分
-                            active_crashes[v1] = 60
-                            active_crashes[v2] = 60
-                    except: pass
-
+            collisions = sumo_utils.detect_real_collisions(TRAFFIC_LIGHT_ID,active_crashes,step)
+            step_collision_counter += collisions
 
                
 
-            for v in list(active_crashes.keys()):
-                active_crashes[v] -= 1
-                try:
-                    if active_crashes[v] <= 0:
-                        traci.vehicle.setSpeed(v, -1) 
-                        del active_crashes[v]
-                    else:
-                        traci.vehicle.setSpeed(v, 0) 
-                except traci.TraCIException:
-                    del active_crashes[v]
+            sumo_utils.update_crash_vehicles(active_crashes)
 
-            deadlock_penalty = 0
-            vehicles = traci.vehicle.getIDList()
-            for v_id in vehicles:
-                if traci.vehicle.getSpeed(v_id) < 0.1:
-                    waiting_time = traci.vehicle.getWaitingTime(v_id)
-                    if waiting_time > 90:
-                        traci.vehicle.remove(v_id) 
-                        deadlock_penalty -= 500
+            deadlock_penalty = sumo_utils.handle_deadlock_vehicles(deadlock_threshold=90)
                         
             new_phase = traci.trafficlight.getPhase(TRAFFIC_LIGHT_ID)
             if new_phase != current_phase:
@@ -383,12 +304,14 @@ def main():
 
                         if last_state is not None:
                             # 傳入這段期間發生的車禍總數
-                            reward, _ = calculate_reward(TRAFFIC_LIGHT_ID, step_collision_counter)
+                            # call 錯function
+                            reward, _ = sumo_utils.calculate_reward(TRAFFIC_LIGHT_ID, step_collision_counter, time_in_current_phase)
                             step_collision_counter = 0 # 👑 結算後歸零
+                            reward += deadlock_penalty
                             cumulative_reward += reward
                             phase_state = traci.trafficlight.getRedYellowGreenState(TRAFFIC_LIGHT_ID)
                             
-                            if check_downstream_jam(TRAFFIC_LIGHT_ID, jam_threshold=0.85):
+                            if sumo_utils.check_downstream_jam(TRAFFIC_LIGHT_ID, 0.85):
                                 print("🚨 下游癱瘓，強制切換 GA 疏導！", flush=True)
                                 control_mode = "GA"
                                 ga_override_cycles_left = 3
@@ -434,7 +357,7 @@ def main():
                     
                     if time_in_current_phase > 0 and time_in_current_phase % ACTION_INTERVAL == 0:
                         current_state = get_state(TRAFFIC_LIGHT_ID)
-                        reward, _ = calculate_reward(TRAFFIC_LIGHT_ID)
+                        reward, _ = sumo_utils.calculate_reward(TRAFFIC_LIGHT_ID, step_collision_counter, time_in_current_phase)
                         cumulative_reward += reward
                         phase_state = traci.trafficlight.getRedYellowGreenState(TRAFFIC_LIGHT_ID)
                         
@@ -504,6 +427,6 @@ def main():
         except: pass
 
 if __name__ == "__main__":
-    get_sumo_home()
+    sumo_utils.get_sumo_home()
     main()
     print("程式執行完畢！")

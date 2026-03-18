@@ -10,6 +10,7 @@ import random
 import csv
 import datetime
 import uuid # 用於產生絕對不重複的檔案名稱
+import sumo_utils
 
 # =====================================================================
 # 👑 新增：全局 Log 紀錄器 (攔截所有 print 並同時寫入終端機與 TXT)
@@ -40,15 +41,7 @@ sys.stdout = DualLogger(LOG_FILENAME)
 sys.stderr = sys.stdout 
 # =====================================================================
 
-# --- 基礎設定與 SUMO 啟動 ---
-def get_sumo_home():
-    if 'SUMO_HOME' in os.environ:
-        tools = os.path.join(os.environ['SUMO_HOME'], 'tools')
-        sys.path.append(tools)
-        return True
-    else:
-        sys.exit("請確認 SUMO_HOME 環境變數已設定！")
-get_sumo_home()
+sumo_utils.get_sumo_home()
 
 TRAFFIC_LIGHT_ID="1253678773"
 GA_INSTANCE_ID = f"default_ga_{os.getpid()}"
@@ -75,32 +68,29 @@ def get_total_delay(filename):
             total_waiting_time += timeLoss
     return total_waiting_time
 
+
 def evaluate(individual):
-    active_crashes = {} # 記錄真車禍的車輛 ID 與剩餘罰站時間
+    active_crashes = {}
     pid = os.getpid()
-    # 【修復 1】：加入 uuid，確保就算同一個 Worker 處理，檔案名稱也絕對不重複
     run_id = uuid.uuid4().hex[:6] 
     unique_tripinfo = f"tripinfo_{GA_INSTANCE_ID}_PID{pid}_{run_id}.xml"
     connection_label = f"GA_TL_{pid}_{run_id}"
 
-    unique_sumo_cmd = [
-        sumo_binary, "-c", SUMO_CONFIG_FILE,
-        "--time-to-teleport", "3600",
-        "--seed", str(sim_seed),
-        "--lateral-resolution", "0.05",
-        "--tripinfo-output", unique_tripinfo,
-        "--no-warnings", "true", # 減少控制台的噪音
-        "--no-step-log", "true",
-        "--collision.mingap-factor", "0", # 【新增】放寬碰撞判定，允許極限貼車鑽縫，前後方向
-        "--collision.action", "warn", #讓SUMO無視碰撞 (車子的框框互相碰到了) ，而程式處理，是真碰撞還是假碰撞
-        "--collision.check-junctions", "true", # 加強路口判定
-    ]
+    unique_sumo_cmd = sumo_utils.build_sumo_cmd(
+        config_file=SUMO_CONFIG_FILE,
+        use_gui=False,
+        tripinfo_file=unique_tripinfo,
+        seed=sim_seed,
+        time_to_teleport="3600",
+        quiet=True
+    )
 
     try:
         traci.start(unique_sumo_cmd, label=connection_label) 
-        # 使用特定連線，避免多核心打架
+        sumo_utils.reset_global_state()  
         conn = traci.getConnection(connection_label)
 
+        # ... 紅綠燈設定邏輯（保持不變）...
         all_logics = conn.trafficlight.getAllProgramLogics(TRAFFIC_LIGHT_ID)
         if not all_logics:
             conn.close()
@@ -132,82 +122,50 @@ def evaluate(individual):
         
         conn.trafficlight.setProgramLogic(TRAFFIC_LIGHT_ID, logic)
         conn.trafficlight.setProgram(TRAFFIC_LIGHT_ID, logic.programID)
-        total_deadlock_penalty = 0.0 # 👑 新增：紀錄死鎖造成的延遲懲罰
+        
+        # ===== 👇 關鍵替換：使用 sumo_utils 👇 =====
+        total_deadlock_penalty = 0.0
+        total_collision_count = 0
         MAX_SIM_STEPS = 8000
         step = 0
-        # 👑 在 main 裡面先取得受控路口的所有車道清單
-        controlled_lanes = set(conn.trafficlight.getControlledLanes(TRAFFIC_LIGHT_ID))
-        total_collision_count = 0  # 👑 新增：這場模擬總共撞了幾次
+        
         while step < MAX_SIM_STEPS and conn.simulation.getMinExpectedNumber() > 0:
             conn.simulationStep()
             step += 1
-            # 👇👇👇 智能裁判邏輯 👇👇👇
-            # 偵測碰撞
-            collisions = conn.simulation.getCollisions()
-            for coll in collisions:
-                v1, v2 = coll.collider, coll.victim
-                if v1 not in active_crashes and v2 not in active_crashes:
-                    
-                    # 👑 【精準過濾】：判斷車禍車道是否屬於本路口
-                    is_my_junction = False
-                    if coll.lane in controlled_lanes: # 車道在路口進入端
-                        is_my_junction = True
-                    elif coll.lane.startswith(':'): # 發生在路口內部 (Internal Lane)
-                        # 內部車道名稱通常包含路口 ID，例如 :1253678773_0_0
-                        if TRAFFIC_LIGHT_ID in coll.lane:
-                            is_my_junction = True
-                    
-                    if not is_my_junction:
-                        continue # 👑 別處撞車，與我無關，跳過
-
-                    try:
-                        angle1, angle2 = conn.vehicle.getAngle(v1), conn.vehicle.getAngle(v2)
-                        angle_diff = abs(angle1 - angle2) % 360
-                        if angle_diff > 180: angle_diff = 360 - angle_diff
-                        
-                        if angle_diff > 45 or coll.lane.startswith(':'):
-                            print(f"💥 [REAL_COLLISION] 本路口發生車禍! PID: {os.getpid()} Step: {step} | Lane: {coll.lane}")
-                            total_collision_count += 1  # 👑 紀錄發生次數
-                            active_crashes[v1] = 60
-                            active_crashes[v2] = 60
-                    except: pass
-
-            # 執行物理路障
-            for v in list(active_crashes.keys()):
-                active_crashes[v] -= 1
-                try:
-                    if active_crashes[v] <= 0:
-                        conn.vehicle.setSpeed(v, -1) 
-                        del active_crashes[v]
-                    else:
-                        conn.vehicle.setSpeed(v, 0) 
-                except traci.TraCIException:
-                    del active_crashes[v]
-            # 👆👆👆 智能裁判邏輯結束 👆👆👆
-
-            # 👇👇👇 🚑 救災防死鎖與計算罰款 👇👇👇
-            # 同樣全部使用 conn. 來操作
-            for v_id in conn.vehicle.getIDList():
-                if conn.vehicle.getSpeed(v_id) < 0.1:
-                    if conn.vehicle.getWaitingTime(v_id) > 90:
-                        conn.vehicle.remove(v_id) # 移出死鎖車輛
-                        # 💣 因為 GA 是要找「等待時間最少」的，所以懲罰是加上去！
-                        # 一台車死鎖，我們就給這個基因組合「增加 500 秒」的等待時間！
-                        total_deadlock_penalty += 500.0 
-            # 👆👆👆 救災邏輯結束 👆👆👆
             
-            # 【修正 2：加入心跳監視器】
-            # 每模擬 500 步就回報一次，讓你知道它沒有死機
+            # 👑 使用共用函數：碰撞偵測
+            new_collisions = sumo_utils.detect_real_collisions(
+                TRAFFIC_LIGHT_ID, 
+                active_crashes, 
+                step,
+                conn=conn  # 👈 傳入 conn
+            )
+            total_collision_count += new_collisions
+            
+            # 👑 使用共用函數：更新碰撞車輛
+            sumo_utils.update_crash_vehicles(active_crashes, conn=conn)
+            
+            # 👑 使用共用函數：死鎖處理
+            deadlock_penalty = sumo_utils.handle_deadlock_vehicles(
+                deadlock_threshold=90,
+                conn=conn  # 👈 傳入 conn
+            )
+            total_deadlock_penalty += deadlock_penalty
+            
+            # 心跳監視器
             if step % 500 == 0:
                 print(f"[PID {pid}] 正在執行模擬... 第 {step}/{MAX_SIM_STEPS} 步 (剩餘車輛: {conn.simulation.getMinExpectedNumber()})")
 
-        # 【修復 2】：非常關鍵！必須先關閉連線，SUMO 才會把 XML 寫完！
+        # ===== 👆 替換結束 👆 =====
+
         conn.close()
         
-        # 【修復 3】：確定關閉後，才去讀取 XML
-        delay = get_total_delay(unique_tripinfo) 
-        # 👑 核心：總延遲 = 原始延遲 + 死鎖罰款 + (車禍次數 * 5000)
-        final_penalty_score = delay + total_deadlock_penalty + (total_collision_count * 1000.0)
+        # 👑 使用共用函數：計算延遲
+        delay = sumo_utils.calculate_delay(TRAFFIC_LIGHT_ID, conn=conn)
+        
+        # 注意：這裡的 total_deadlock_penalty 已經是負數了
+        # 所以要改成「減去」才能增加懲罰
+        final_penalty_score = delay - total_deadlock_penalty + (total_collision_count * 1000.0)
         
         return (final_penalty_score,)
             
@@ -215,7 +173,6 @@ def evaluate(individual):
         print(f"Error in PID {pid}: {e}")
         return (999999.0,) 
     finally:
-        # 【修復 4】：確保連線一定被關閉，並且強制刪除垃圾檔案
         try:
             traci.getConnection(connection_label).close()
         except: 
