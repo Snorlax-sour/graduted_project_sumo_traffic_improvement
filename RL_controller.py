@@ -57,19 +57,38 @@ def read_ga_optimal_phases(csv_filepath):
 GA_OPTIMAL_PHASES = read_ga_optimal_phases(GA_RESULT_PATH)
 
 def get_state(tls_id):
+    """
+    獲取 AI 狀態空間 (已升級：加入下游車道佔用率特徵)
+    """
     lanes = traci.trafficlight.getControlledLanes(tls_id)
     unique_lanes = list(set(lanes))
     
-    # 1. 靜止排隊車輛 (AI 知道哪裡在塞車)
+    # 1. 靜止排隊車輛 (AI 知道哪裡在上游塞車)
     halting_counts = [traci.lane.getLastStepHaltingNumber(lane) for lane in unique_lanes]
-    # 2. 👑 新增：車道上的總車輛數 (AI 才會看到正在衝過來的車流！)
+    # 2. 車道上的總車輛數 (AI 知道衝過來的車流)
     total_vehicles = [traci.lane.getLastStepVehicleNumber(lane) for lane in unique_lanes]
+    
+    # 👑 3. 新增：下游車道佔用率 (AI 才會知道前方是否已經塞死，能不能給綠燈)
+    links = traci.trafficlight.getControlledLinks(tls_id)
+    downstream_lanes = set()
+    for signal_group in links:
+        for conn in signal_group:
+            down_lane = conn[1] 
+            if down_lane not in unique_lanes: # 排除掉頭回到原車道的特例
+                downstream_lanes.add(down_lane)
+                
+    # ⚠️ 分析師的嚴格規範：必須 sorted() 排序！
+    # Set 的迭代順序每次執行可能不同，如果不排序，神經網路的 Input 維度會錯亂，AI 會精神分裂。
+    downstream_occupancy = []
+    for lane in sorted(list(downstream_lanes)):
+        occ = traci.lane.getLastStepOccupancy(lane)
+        downstream_occupancy.append(occ)
     
     current_phase = traci.trafficlight.getPhase(tls_id)
     GA_min_time_suggestion = GA_OPTIMAL_PHASES[0] if current_phase == 0 else GA_OPTIMAL_PHASES[1]
     
-    # 把這兩組數據合併交給 AI
-    state_list = halting_counts + total_vehicles + [current_phase, GA_min_time_suggestion]
+    # 合併所有特徵交給 AI
+    state_list = halting_counts + total_vehicles + downstream_occupancy + [current_phase, GA_min_time_suggestion]
     return tuple(state_list)
 
 def get_total_queue_length(tls_id):
@@ -144,7 +163,7 @@ def parse_arguments():
 # ==============================================================================
 # 👑 【核心重構】：獨立出單局執行的函數，讓外面可以跑迴圈
 # ==============================================================================
-def run_single_episode(episode_num, agent, sumoCmd, is_train_mode, instance_id, mode_label, TRAFFIC_LIGHT_ID):
+def run_single_episode(episode_num, agent, sumoCmd, is_train_mode, instance_id, mode_label, TRAFFIC_LIGHT_ID, agent_learn_size):
     print(f"\n" + "-"*55)
     print(f"🏁 正在啟動第 {episode_num} 局模擬 (Episode {episode_num}) ...")
     print("-"*55)
@@ -184,7 +203,7 @@ def run_single_episode(episode_num, agent, sumoCmd, is_train_mode, instance_id, 
     # 動態調整 State Size (如果還沒建立過 Model)
     if not hasattr(agent, "is_built") or not agent.is_built:
         lanes = traci.trafficlight.getControlledLanes(TRAFFIC_LIGHT_ID)
-        agent.state_size = len(list(set(lanes))) * 2 + 2# 👑 乘以 2 因為有 queue_lengths 和 total_vehicles
+        agent.state_size = agent_learn_size# 👑 乘以 2 因為有 queue_lengths 和 total_vehicles
         agent.build_models()
         agent.is_built = True
 
@@ -208,7 +227,7 @@ def run_single_episode(episode_num, agent, sumoCmd, is_train_mode, instance_id, 
             collisions = sumo_utils.detect_real_collisions(TRAFFIC_LIGHT_ID, active_crashes, step)
             step_collision_counter += collisions
             sumo_utils.update_crash_vehicles(active_crashes)
-            deadlock_penalty, _ = sumo_utils.handle_deadlock_vehicles(deadlock_threshold=90)
+            deadlock_penalty = sumo_utils.handle_deadlock_vehicles(deadlock_threshold=90)
                         
             new_phase = traci.trafficlight.getPhase(TRAFFIC_LIGHT_ID)
             if new_phase != current_phase:
@@ -410,11 +429,20 @@ def main():
     traci.start(temp_sumo_cmd)
     lanes = traci.trafficlight.getControlledLanes(TRAFFIC_LIGHT_ID)
     unique_lanes_count = len(list(set(lanes)))
+    
+    # 👇 必須新增這段來探勘下游車道數量
+    links = traci.trafficlight.getControlledLinks(TRAFFIC_LIGHT_ID)
+    downstream_lanes = set()
+    for signal_group in links:
+        for conn in signal_group:
+            if conn[1] not in set(lanes):
+                downstream_lanes.add(conn[1])
+    downstream_lanes_count = len(downstream_lanes)
     traci.close() # 探勘完畢，立刻撤退關閉
     
     # 🧠 計算真正的 State Size
-    # 公式：(每條車道的靜止車數) + (每條車道的總車數) + 1(目前相角) + 1(GA建議)
-    DYNAMIC_STATE_SIZE = (unique_lanes_count * 2) + 2
+    # 👑 新公式：(上游靜止) + (上游總車數) + (下游佔用率) + 1(目前相角) + 1(GA建議)
+    DYNAMIC_STATE_SIZE = (unique_lanes_count * 2) + downstream_lanes_count + 2
     
     print(f"✅ 探勘完成！偵測到路口共有 {unique_lanes_count} 條獨立車道。")
     print(f"🧠 動態設定 Keras 神經網路 State Size: {DYNAMIC_STATE_SIZE}")
@@ -462,13 +490,13 @@ def main():
         print(f"🔥 [啟動精神時光屋] 準備連續訓練 {TOTAL_EPISODES} 局！")
         
         for episode in range(1, TOTAL_EPISODES + 1):
-            run_single_episode(episode, agent, sumoCmd, is_train_mode, instance_id, mode_label, TRAFFIC_LIGHT_ID)
+            run_single_episode(episode, agent, sumoCmd, is_train_mode, instance_id, mode_label, TRAFFIC_LIGHT_ID, DYNAMIC_STATE_SIZE)
             
         print(f"\n🎉 精神時光屋 {TOTAL_EPISODES} 局訓練全數完成！")
         
     else:
         # 測試模式只跑 1 局
-        run_single_episode(1, agent, sumoCmd, is_train_mode, instance_id, mode_label, TRAFFIC_LIGHT_ID)
+        run_single_episode(1, agent, sumoCmd, is_train_mode, instance_id, mode_label, TRAFFIC_LIGHT_ID, DYNAMIC_STATE_SIZE)
         
     # 👑 5. 全部結束後，發送電腦通知
     try:

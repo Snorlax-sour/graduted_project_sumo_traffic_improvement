@@ -37,15 +37,7 @@ def get_total_queue_length(tls_id):
 
 def calculate_reward(tls_id, collision_count=0, time_in_current_phase=0):
     """
-    計算當前時間步的獎勵
-    
-    Args:
-        tls_id: 交通號誌 ID
-        collision_count: 本時間步內發生的車禍次數
-        time_in_current_phase: 當前綠燈持續時間（秒）
-    
-    Returns:
-        (reward, current_queue_length): 獎勵值與當前排隊長度
+    計算當前時間步的獎勵 (已升級：具備路口防死鎖與下游預見能力)
     """
     global last_total_waiting_time
     
@@ -53,38 +45,51 @@ def calculate_reward(tls_id, collision_count=0, time_in_current_phase=0):
         lanes = traci.trafficlight.getControlledLanes(tls_id)
         unique_lanes = list(set(lanes))
         
-        # 計算當前總等待時間
+        # 1. 基礎指標：等待時間與排隊
         current_total_waiting_time = sum([
             traci.vehicle.getWaitingTime(veh_id)
             for lane in unique_lanes
             for veh_id in traci.lane.getLastStepVehicleIDs(lane)
         ])
-        
-        # 計算當前總排隊長度
         current_total_queue_length = get_total_queue_length(tls_id)
         
-        # 懲罰項 1: 等待時間
         penalty_waiting = current_total_waiting_time * 0.1
-        
-        # 懲罰項 2: 排隊長度（平方懲罰，避免大排隊）
         penalty_queue = 0.5 * (current_total_queue_length ** 2)
         
-        # 懲罰項 3: 等待時間增量（如果越等越久）
         delta_delay = current_total_waiting_time - last_total_waiting_time
         penalty_delta = max(0, delta_delay) * 2.0
         
-        # 懲罰項 4: 車禍（嚴厲懲罰）
+        # 👑 2. 進階指標：路口內部堵塞懲罰 (Junction Blocking Penalty)
+        # 找出路口內部的連通車道 (via lanes)
+        internal_lane_ids = set()
+        links = traci.trafficlight.getControlledLinks(tls_id)
+        for signal_group in links:
+            for conn in signal_group:
+                if len(conn) >= 3 and conn[2]:  # conn[2] 是路口內部的隱藏車道 ID
+                    internal_lane_ids.add(conn[2])
+                    
+        blocked_veh_count = 0
+        for int_lane in internal_lane_ids:
+            # 統計卡在十字路口「正中間」且靜止的車輛數
+            blocked_veh_count += traci.lane.getLastStepHaltingNumber(int_lane)
+            
+        # 只要車卡在路中央，每台車罰 500 分！這會逼迫 RL 學會不要給半殘的綠燈
+        penalty_junction_blocking = blocked_veh_count * 500.0 
+        
+        # 👑 3. 進階指標：下游壅塞懲罰 (Downstream Jam Penalty)
+        penalty_downstream = 0.0
+        if check_downstream_jam(tls_id, jam_threshold=0.85):
+            # 下游已經滿了，如果此時還維持綠燈繼續把車塞進去，重罰！
+            penalty_downstream = 1000.0
+            
+        # 4. 終極懲罰：車禍
         penalty_collision = collision_count * COLLISION_PENALTY
         
-        
-        
-        # 總獎勵（負數 = 懲罰）
+        # 總獎勵結算
         reward = -(penalty_waiting + penalty_queue + penalty_delta + 
-                   penalty_collision)
+                   penalty_collision + penalty_junction_blocking + penalty_downstream)
         
-        # 更新全域狀態
         last_total_waiting_time = current_total_waiting_time
-        
         return reward, current_total_queue_length
         
     except Exception as e:

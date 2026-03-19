@@ -111,11 +111,53 @@ def evaluate(individual):
         total_collision_count = 0
         MAX_SIM_STEPS = 8000
         step = 0
-        
+        # --- 【新增：動態懲罰追蹤器初始化】 ---
+        junction_retention_dict = {}       # 紀錄車輛在路口內的存留時間 {vid: seconds}
+        total_jvr_penalty = 0.0            # 總滯留懲罰分
+        total_phase_transition_penalty = 0.0 # 總變燈殘留懲罰分
+        total_downstream_penalty = 0.0     # 總下游壅塞懲罰分
+
+        last_phase = conn.trafficlight.getPhase(TRAFFIC_LIGHT_ID)
+        # ------------------------------------
         while step < MAX_SIM_STEPS and conn.simulation.getMinExpectedNumber() > 0:
             conn.simulationStep()
             step += 1
-            
+            # ==========================================
+            # 👑 【新增：即時物理量與空間佔用監控】
+            # ==========================================
+
+            # 1. 路口內部車輛存留時間 (Junction Vehicle Retention, JVR)
+            current_vehicles = conn.vehicle.getIDList()
+            for vid in current_vehicles:
+                edge = conn.vehicle.getRoadID(vid)
+                # 判斷是否在路口內部 (SUMO 的路口內部 edge 開頭為 ':')
+                if edge.startswith(':'):
+                    junction_retention_dict[vid] = junction_retention_dict.get(vid, 0) + 1
+                    # 容忍閾值：超過 5 秒未離開路口，開始指數級扣分
+                    if junction_retention_dict[vid] > 5:
+                        # 每多停 1 秒，懲罰越重 (1.5次方)
+                        total_jvr_penalty += (junction_retention_dict[vid] - 5) ** 1.5 
+                else:
+                    # 車輛順利離開路口，清除紀錄
+                    if vid in junction_retention_dict:
+                        del junction_retention_dict[vid]
+
+            # 2. 相位過渡壓力值 (Phase Transition Pressure)
+            current_phase = conn.trafficlight.getPhase(TRAFFIC_LIGHT_ID)
+            if current_phase != last_phase:
+                # 變燈瞬間，計算卡在路口中間的車輛數
+                in_junction_count = sum(1 for v in junction_retention_dict.keys())
+                # 殘留一台車罰 1000 分，嚴格禁止「把車卡在路中央迎接紅燈」
+                total_phase_transition_penalty += in_junction_count * 1000.0 
+                last_phase = current_phase
+
+            # 3. 下游空間預留係數 (Downstream Buffer Factor)
+            # 呼叫你 sumo_utils 裡寫好的函數，佔用率 > 85% 就持續扣分
+            if sumo_utils.check_downstream_jam(TRAFFIC_LIGHT_ID, jam_threshold=0.85, conn=conn):
+                # 只要下游滿了，每秒罰 500 分，迫使 GA 寧願讓車在上游等，也不要把車塞進下游
+                total_downstream_penalty += 500.0 
+
+            # ==========================================
             new_collisions = sumo_utils.detect_real_collisions(TRAFFIC_LIGHT_ID, active_crashes, step, conn=conn)
             total_collision_count += new_collisions
             
@@ -137,11 +179,27 @@ def evaluate(individual):
         # ========================================================
         # 👑 請確認 sumo_utils 裡的 COLLISION_PENALTY 是 5000 或您設定的數值
         # 這裡為了保險，我們直接手動定義車禍分數 5000 
-        RL_COLLISION_PENALTY = 5000.0 
-        
-        final_penalty_score = delay + abs(total_deadlock_penalty) + (total_collision_count * RL_COLLISION_PENALTY)
-        
-        return (final_penalty_score, total_collision_count, total_deadlock_count)
+        # 權重可視情況微調 (分析師建議初始值)
+        w_delay = 1.0
+        w_deadlock = 1.0
+        w_collision = 1.0
+        w_jvr = 2.0         # 滯留路口極其危險，加重 2 倍
+        w_transition = 1.0
+        w_downstream = 1.0
+
+        final_penalty_score = (
+            (delay * w_delay) + 
+            (abs(total_deadlock_penalty) * w_deadlock) + 
+            (total_collision_count * sumo_utils.COLLISION_PENALTY * w_collision) +
+            (total_jvr_penalty * w_jvr) + 
+            (total_phase_transition_penalty * w_transition) + 
+            (total_downstream_penalty * w_downstream)
+        )
+
+        # 可選：印出各項懲罰以便 Debug，確保權重沒有失衡
+        print(f"[PID {pid}] Delay: {delay:.1f} | Collisions: {total_collision_count} | JVR: {total_jvr_penalty:.1f} | Trans: {total_phase_transition_penalty:.1f} | Downstream: {total_downstream_penalty:.1f}")
+
+        return (final_penalty_score, total_collision_count, total_deadlock_count)   
             
     except Exception as e:
         print(f"Error in PID {pid}: {e}")
