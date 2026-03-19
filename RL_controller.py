@@ -144,7 +144,7 @@ def parse_arguments():
 # ==============================================================================
 # 👑 【核心重構】：獨立出單局執行的函數，讓外面可以跑迴圈
 # ==============================================================================
-def run_single_episode(episode_num, agent, sumoCmd, is_train_mode, instance_id, mode_label):
+def run_single_episode(episode_num, agent, sumoCmd, is_train_mode, instance_id, mode_label, TRAFFIC_LIGHT_ID):
     print(f"\n" + "-"*55)
     print(f"🏁 正在啟動第 {episode_num} 局模擬 (Episode {episode_num}) ...")
     print("-"*55)
@@ -156,7 +156,7 @@ def run_single_episode(episode_num, agent, sumoCmd, is_train_mode, instance_id, 
     sumo_utils.reset_global_state()
     
     # 3. 初始化單局的變數
-    TRAFFIC_LIGHT_ID = "1253678773"
+    
     MAX_SIMULATION_STEPS = 8000
     MIN_GREEN_TIME = 10 
     ACTION_INTERVAL = 10 
@@ -184,7 +184,7 @@ def run_single_episode(episode_num, agent, sumoCmd, is_train_mode, instance_id, 
     # 動態調整 State Size (如果還沒建立過 Model)
     if not hasattr(agent, "is_built") or not agent.is_built:
         lanes = traci.trafficlight.getControlledLanes(TRAFFIC_LIGHT_ID)
-        agent.state_size = len(list(set(lanes))) + 2
+        agent.state_size = len(list(set(lanes))) * 2 + 2# 👑 乘以 2 因為有 queue_lengths 和 total_vehicles
         agent.build_models()
         agent.is_built = True
 
@@ -208,7 +208,7 @@ def run_single_episode(episode_num, agent, sumoCmd, is_train_mode, instance_id, 
             collisions = sumo_utils.detect_real_collisions(TRAFFIC_LIGHT_ID, active_crashes, step)
             step_collision_counter += collisions
             sumo_utils.update_crash_vehicles(active_crashes)
-            deadlock_penalty = sumo_utils.handle_deadlock_vehicles(deadlock_threshold=90)
+            deadlock_penalty, _ = sumo_utils.handle_deadlock_vehicles(deadlock_threshold=90)
                         
             new_phase = traci.trafficlight.getPhase(TRAFFIC_LIGHT_ID)
             if new_phase != current_phase:
@@ -390,12 +390,39 @@ def main():
     print(f"📝 日誌檔案: {log_filename}")
     print("#"*55 + "\n")
     
+  # =========================================================================
+    # 👑 【核心重構】：動態探勘路口狀態維度 (打破 Hardcode 寫死的 state_size)
+    # =========================================================================
+    TRAFFIC_LIGHT_ID = "1253678773"
     SUMO_CONFIG_FILE = "osm.sumocfg"
     ACTION_SPACE = [0, 1]
+    
+    print("🕵️‍♂️ 正在派遣偵察兵探勘 SUMO 實際路口特徵...")
+    temp_sumo_cmd = sumo_utils.build_sumo_cmd(
+        config_file=SUMO_CONFIG_FILE,
+        use_gui=False,       # 隱形模式，不開 GUI
+        tripinfo_file=None,  # 探勘不需要產出 XML
+        seed=42,
+        quiet=True           # 安靜模式，不噴多餘的 Log
+    )
+    
+    # 短暫啟動 SUMO 來獲取路口資訊
+    traci.start(temp_sumo_cmd)
+    lanes = traci.trafficlight.getControlledLanes(TRAFFIC_LIGHT_ID)
+    unique_lanes_count = len(list(set(lanes)))
+    traci.close() # 探勘完畢，立刻撤退關閉
+    
+    # 🧠 計算真正的 State Size
+    # 公式：(每條車道的靜止車數) + (每條車道的總車數) + 1(目前相角) + 1(GA建議)
+    DYNAMIC_STATE_SIZE = (unique_lanes_count * 2) + 2
+    
+    print(f"✅ 探勘完成！偵測到路口共有 {unique_lanes_count} 條獨立車道。")
+    print(f"🧠 動態設定 Keras 神經網路 State Size: {DYNAMIC_STATE_SIZE}")
 
-    # 👑 1. 建立 Agent (只建立一次，確保 memory 不會被洗掉)
+    # 👑 現在可以安全、完美地建立 Agent 了！它會自動適應任何地圖！
     print(f"使用的 RL 實例 ID (instance_id): {instance_id}")
-    agent = DQNAgent(state_size=6, action_space=ACTION_SPACE, instance_id=instance_id) 
+    agent = DQNAgent(state_size=DYNAMIC_STATE_SIZE, action_space=ACTION_SPACE, instance_id=instance_id) 
+    # ========================================================================= 
 
     # 👑 2. 載入模型權重
     if is_train_mode:
@@ -435,13 +462,13 @@ def main():
         print(f"🔥 [啟動精神時光屋] 準備連續訓練 {TOTAL_EPISODES} 局！")
         
         for episode in range(1, TOTAL_EPISODES + 1):
-            run_single_episode(episode, agent, sumoCmd, is_train_mode, instance_id, mode_label)
+            run_single_episode(episode, agent, sumoCmd, is_train_mode, instance_id, mode_label, TRAFFIC_LIGHT_ID)
             
         print(f"\n🎉 精神時光屋 {TOTAL_EPISODES} 局訓練全數完成！")
         
     else:
         # 測試模式只跑 1 局
-        run_single_episode(1, agent, sumoCmd, is_train_mode, instance_id, mode_label)
+        run_single_episode(1, agent, sumoCmd, is_train_mode, instance_id, mode_label, TRAFFIC_LIGHT_ID)
         
     # 👑 5. 全部結束後，發送電腦通知
     try:

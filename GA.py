@@ -15,7 +15,6 @@ import sumo_utils
 # =====================================================================
 # 👑 新增：全局 Log 紀錄器 (攔截所有 print 並同時寫入終端機與 TXT)
 # =====================================================================
-# 使用環境變數鎖定啟動時間，確保多核心 Worker 不會因為秒差而建立出不同的檔案
 if "GA_START_TIME" not in os.environ:
     os.environ["GA_START_TIME"] = datetime.datetime.now().strftime("%Y-%m-%d_%H%M")
 
@@ -24,19 +23,17 @@ LOG_FILENAME = f"execute_GA_{os.environ['GA_START_TIME']}.txt"
 class DualLogger(object):
     def __init__(self, filename):
         self.terminal = sys.stdout
-        # 使用 "a" (append) 模式，讓多核心進程可以共同寫入同一個檔案
         self.log = open(filename, "a", encoding="utf-8")
 
     def write(self, message):
         self.terminal.write(message)
         self.log.write(message)
-        self.log.flush() # 強制即時寫入，避免多核心同時寫入時發生卡彈
+        self.log.flush() 
 
     def flush(self):
         self.terminal.flush()
         self.log.flush()
 
-# 將系統的標準輸出與錯誤輸出替換為我們的 DualLogger
 sys.stdout = DualLogger(LOG_FILENAME)
 sys.stderr = sys.stdout 
 # =====================================================================
@@ -51,22 +48,6 @@ if len(sys.argv) > 1:
 sumo_binary = "sumo"
 SUMO_CONFIG_FILE="osm.sumocfg"
 sim_seed  = 42
-
-def get_total_delay(filename):
-    """解析 XML 計算延遲。如果出錯，返回懲罰值。"""
-    try:
-        tree = ET.parse(filename)
-        root = tree.getroot()
-    except (FileNotFoundError, ET.ParseError) as e:
-        print(f"[{os.getpid()}] 警告：無法解析 XML '{filename}' (錯誤: {e}). 返回極大延遲作為懲罰。")
-        return 999999.0 # 給予極大的懲罰值，讓 GA 淘汰這個壞個體
-        
-    total_waiting_time = 0.0
-    for trip in root.findall("tripinfo"):
-        if "timeLoss" in trip.attrib:
-            timeLoss = float(trip.attrib["timeLoss"])
-            total_waiting_time += timeLoss
-    return total_waiting_time
 
 
 def evaluate(individual):
@@ -90,11 +71,10 @@ def evaluate(individual):
         sumo_utils.reset_global_state()  
         conn = traci.getConnection(connection_label)
 
-        # ... 紅綠燈設定邏輯（保持不變）...
         all_logics = conn.trafficlight.getAllProgramLogics(TRAFFIC_LIGHT_ID)
         if not all_logics:
             conn.close()
-            return (999999.0,)
+            return (999999.0, 0, 0)
         
         default_logic = all_logics[0]
         orig_phase0_state = default_logic.phases[0].state 
@@ -107,9 +87,10 @@ def evaluate(individual):
         
         if not orig_phase2_state:
             orig_phase2_state = orig_phase0_state.replace('G', 'r').replace('g', 'r').replace('r', 'G')
-        # 👑 動態抓取原本路口的黃燈/過渡期秒數 (如果有設定的話，否則預設給 3 秒)
+            
         orig_yellow_dur1 = default_logic.phases[1].duration if len(default_logic.phases) > 1 else 3.0
         orig_yellow_dur2 = default_logic.phases[3].duration if len(default_logic.phases) > 3 else 3.0
+        
         logic = Logic(
             programID="ga_prog",
             phases=[            
@@ -125,8 +106,8 @@ def evaluate(individual):
         conn.trafficlight.setProgramLogic(TRAFFIC_LIGHT_ID, logic)
         conn.trafficlight.setProgram(TRAFFIC_LIGHT_ID, logic.programID)
         
-        # ===== 👇 關鍵替換：使用 sumo_utils 👇 =====
         total_deadlock_penalty = 0.0
+        total_deadlock_count = 0
         total_collision_count = 0
         MAX_SIM_STEPS = 8000
         step = 0
@@ -135,58 +116,45 @@ def evaluate(individual):
             conn.simulationStep()
             step += 1
             
-            # 👑 使用共用函數：碰撞偵測
-            new_collisions = sumo_utils.detect_real_collisions(
-                TRAFFIC_LIGHT_ID, 
-                active_crashes, 
-                step,
-                conn=conn  # 👈 傳入 conn
-            )
+            new_collisions = sumo_utils.detect_real_collisions(TRAFFIC_LIGHT_ID, active_crashes, step, conn=conn)
             total_collision_count += new_collisions
             
-            # 👑 使用共用函數：更新碰撞車輛
             sumo_utils.update_crash_vehicles(active_crashes, conn=conn)
             
-            # 👑 使用共用函數：死鎖處理
-            deadlock_penalty = sumo_utils.handle_deadlock_vehicles(
-                deadlock_threshold=90,
-                conn=conn  # 👈 傳入 conn
-            )
-            total_deadlock_penalty += deadlock_penalty
+            dl_penalty, dl_count = sumo_utils.handle_deadlock_vehicles(deadlock_threshold=90, conn=conn, return_count=True)
+            total_deadlock_penalty += dl_penalty  
+            total_deadlock_count += dl_count
             
-            # 心跳監視器
             if step % 500 == 0:
                 print(f"[PID {pid}] 正在執行模擬... 第 {step}/{MAX_SIM_STEPS} 步 (剩餘車輛: {conn.simulation.getMinExpectedNumber()})")
 
-        # ===== 👆 替換結束 👆 =====
-
         conn.close()
         
-        # 👑 使用共用函數：計算延遲
-        delay = sumo_utils.calculate_delay(TRAFFIC_LIGHT_ID, conn=conn)
+        delay = sumo_utils.calculate_delay(tripinfo_filename=unique_tripinfo)
         
-        # 注意：這裡的 total_deadlock_penalty 已經是負數了
-        # 所以要改成「減去」才能增加懲罰
-        final_penalty_score = delay - total_deadlock_penalty + (total_collision_count * 1000.0)
+        # ========================================================
+        # ⚖️ 【完全對齊 RL 物理法則】
+        # ========================================================
+        # 👑 請確認 sumo_utils 裡的 COLLISION_PENALTY 是 5000 或您設定的數值
+        # 這裡為了保險，我們直接手動定義車禍分數 5000 
+        RL_COLLISION_PENALTY = 5000.0 
         
-        return (final_penalty_score,)
+        final_penalty_score = delay + abs(total_deadlock_penalty) + (total_collision_count * RL_COLLISION_PENALTY)
+        
+        return (final_penalty_score, total_collision_count, total_deadlock_count)
             
     except Exception as e:
         print(f"Error in PID {pid}: {e}")
-        return (999999.0,) 
+        return (999999.0, 0, 0) 
     finally:
-        try:
-            traci.getConnection(connection_label).close()
-        except: 
-            pass
+        try: traci.getConnection(connection_label).close()
+        except: pass
         if os.path.exists(unique_tripinfo):
-            try:
-                os.remove(unique_tripinfo)
-            except:
-                pass
+            try: os.remove(unique_tripinfo)
+            except: pass
 
 # --- GA 參數設定與初始化 ---
-POP_SIZE = 100 # 建議測試時先調小，確認跑得動再改回 100
+POP_SIZE = 100 
 GEN_NUM = 50
 TIME_MIN = 10
 TIME_MAX = 100
@@ -204,63 +172,59 @@ toolbox.register("evaluate", evaluate)
 toolbox.register("mate", tools.cxTwoPoint)
 toolbox.register("mutate", tools.mutUniformInt, low=TIME_MIN, up=TIME_MAX, indpb=0.5)
 toolbox.register("select", tools.selTournament, tournsize=2)
-    # 每2人一組對打，打100場，1v1
 
 
-# 【修復 5】：主程式保護！這在 Windows 使用多核心是必備的
 def main():
     print(f"主程序 PID {os.getpid()}: 啟動 GA 實例 ID: {GA_INSTANCE_ID}")
     print(f"📝 本次訓練日誌將自動寫入: {LOG_FILENAME}")
-    # =========================================================
-    # 👑 【新增】讀取跨世代的歷史最佳紀錄
-    # =========================================================
+    
     historical_best_delay = float('inf')
     FINAL_RESULT_FILENAME = "./GA_best_result.csv"
     if os.path.exists(FINAL_RESULT_FILENAME):
         try:
             with open(FINAL_RESULT_FILENAME, mode="r", encoding="utf-8") as f:
                 reader = csv.reader(f)
-                next(reader, None) # 跳過標題列
+                next(reader, None) 
                 row = next(reader, None)
                 if row and len(row) >= 4:
                     historical_best_delay = float(row[3])
-                    print(f"💾 成功載入歷史最佳紀錄：{historical_best_delay} 秒")
+                    print(f"💾 成功載入歷史最佳紀錄：{historical_best_delay} 分")
         except Exception as e:
-            print(f"⚠️ 讀取歷史紀錄失敗，視為全新的開始: {e}")
-    # =========================================================
+            print(f"⚠️ 讀取歷史紀錄失敗: {e}")
+
     now = datetime.datetime.now()
     timestamp = now.strftime("%Y-%m-%d_%H-%M-%S")
     filename = rf"./GA_{GA_INSTANCE_ID}__{timestamp}.csv"
 
     csv_file = open(file=filename, mode="w", newline="", encoding="utf-8")
     csv_writer = csv.writer(csv_file)
-    csv_writer.writerow(["generation", "phase1", "phase2", "delay", "os_pid"])
+    # 👑 【修正】CSV 標題新增 車禍 與 死鎖 欄位
+    csv_writer.writerow(["generation", "phase1", "phase2", "total_score", "collisions", "deadlocks", "os_pid"])
 
     pop = toolbox.population(n=POP_SIZE)
     first_values = 0
-    
-    # 【修復 A：建立名人堂 (Hall of Fame)】
-    # 設定只記憶 1 個歷史表現最好的絕對菁英
     hof = tools.HallOfFame(1) 
 
     print(f"\n🔁 開始進行 GA 訓練...\n")
 
-    # 開啟多核心運算
     with concurrent.futures.ProcessPoolExecutor() as executor:
         print(f"\n🔁 開始評估初始群體 (第 0 代)，共 {POP_SIZE} 個體 (多核心加速中...)\n")
         
-        fitnesses = list(executor.map(toolbox.evaluate, pop))
-        for ind, fit in zip(pop, fitnesses):
-            ind.fitness.values = fit
+        # 👑 【核心修正】：攔截初始群體的多重輸出
+        results = list(executor.map(toolbox.evaluate, pop))
+        for ind, res in zip(pop, results):
+            ind.fitness.values = (res[0],) # 只把總分塞給 GA
+            ind.col_cnt = res[1]           # 掛上車禍名牌
+            ind.dl_cnt = res[2]            # 掛上死鎖名牌
             
-        # 【修復 B：更新 Generation 0 到名人堂】
         hof.update(pop)
-        first_values = hof[0].fitness.values[0] # 記錄初始群體的全局最佳
+        first_values = hof[0].fitness.values[0] 
             
         print(f"✅ Gen 0 初始群體評估完成！\n")
-        PATIENCE = 10  # 耐性值：如果連續 10 代沒進步就停
+        PATIENCE = 10  
         no_improve_count = 0
         best_fitness_so_far = float('inf')
+        
         for gen in range(GEN_NUM):
             offspring = toolbox.select(pop, len(pop))
             offspring = list(map(toolbox.clone, offspring))
@@ -278,75 +242,66 @@ def main():
             invalid_ind = [ind for ind in offspring if not ind.fitness.valid]
             print(f"🔄 第 {gen+1} 代：開始評估 {len(invalid_ind)} 個新個體 (多核心加速中...)")
             
-            new_fitnesses = list(executor.map(toolbox.evaluate, invalid_ind))
-            
-            for ind, fit in zip(invalid_ind, new_fitnesses):
-                ind.fitness.values = fit
+            # 👑 【核心修正】：攔截新世代的多重輸出
+            new_results = list(executor.map(toolbox.evaluate, invalid_ind))
+            for ind, res in zip(invalid_ind, new_results):
+                ind.fitness.values = (res[0],) # 只把總分塞給 GA
+                ind.col_cnt = res[1]           # 更新車禍名牌
+                ind.dl_cnt = res[2]            # 更新死鎖名牌
 
             pop[:] = offspring
-            
-            # 【修復 C：每一代評估完後，將新群體丟給名人堂檢查】
-            # 如果有比歷史最佳更低的 delay，名人堂會自動更新並覆蓋
             hof.update(pop)
             
-            # 👑 【新增】提取「當代最佳解」與「全局歷史最佳解」
-            current_gen_best = tools.selBest(pop, k=1)[0] # 當代 100 個體中最好的一個
-            
+            current_gen_best = tools.selBest(pop, k=1)[0] 
             csv_file.flush()
-            global_best = hof[0]                          # 歷史以來最好的一個
+            global_best = hof[0]                          
 
-            print(f"第 {gen+1} 代 當代最佳組合：{current_gen_best}, 等待時間：{current_gen_best.fitness.values[0]:.2f} 秒")
-            print(f"第 {gen+1} 代 歷史最佳組合：{global_best}, 最小等待時間：{global_best.fitness.values[0]:.2f} 秒")
+            # 👑 印出時加上名牌資訊
+            print(f"第 {gen+1} 代 當代最佳：{current_gen_best}, 總分: {current_gen_best.fitness.values[0]:.2f} (車禍:{current_gen_best.col_cnt}, 死鎖:{current_gen_best.dl_cnt})")
+            print(f"第 {gen+1} 代 歷史最佳：{global_best}, 總分: {global_best.fitness.values[0]:.2f} (車禍:{global_best.col_cnt}, 死鎖:{global_best.dl_cnt})")
 
-            # 檢查是否有進步
             current_best_fit = hof[0].fitness.values[0]
-            csv_writer.writerow([gen + 1, current_gen_best[0], current_gen_best[1], f"{current_gen_best.fitness.values[0]:.2f}", f"{os.getpid()}"])
+            # 👑 【修正】寫入 CSV 時，把名牌資訊也寫進去
+            csv_writer.writerow([gen + 1, current_gen_best[0], current_gen_best[1], f"{current_gen_best.fitness.values[0]:.2f}", current_gen_best.col_cnt, current_gen_best.dl_cnt, f"{os.getpid()}"])
             csv_file.flush()
+            
             if current_best_fit < best_fitness_so_far:
                 best_fitness_so_far = current_best_fit
-                no_improve_count = 0  # 有進步，計數重置
-                FINAL_RESULT_FILENAME = "./GA_best_result.csv" 
+                no_improve_count = 0  
                 
-                # 👑 【修改】只有當前成績超越「跨世代歷史紀錄」時，才覆寫檔案！
                 if current_best_fit < historical_best_delay:
                     print(f"🎉 突破跨世代歷史紀錄！({historical_best_delay:.2f} 降至 {current_best_fit:.2f})，更新檔案！")
-                    historical_best_delay = current_best_fit  # 更新門檻值
+                    historical_best_delay = current_best_fit  
                     try:
                         with open(FINAL_RESULT_FILENAME, mode="w", newline="", encoding="utf-8") as final_f:
                             final_writer = csv.writer(final_f)
-                            final_writer.writerow(["generation", "phase1", "phase2", "delay", "os_pid"])
-                            final_writer.writerow([gen + 1, global_best[0], global_best[1], f"{global_best.fitness.values[0]:.2f}", f"{os.getpid()}"])
+                            # 👑 全局最佳 CSV 也同步寫入名牌資訊
+                            final_writer.writerow(["generation", "phase1", "phase2", "total_score", "collisions", "deadlocks", "os_pid"])
+                            final_writer.writerow([gen + 1, global_best[0], global_best[1], f"{global_best.fitness.values[0]:.2f}", global_best.col_cnt, global_best.dl_cnt, f"{os.getpid()}"])
                     except Exception as e:
                         print(f"error write best csv file: {e}")
                 else:
                     print(f"👍 本次訓練有進步 ({current_best_fit:.2f})，但尚未打破歷史紀錄 ({historical_best_delay:.2f})。")
             else:
-                no_improve_count += 1 # 沒進步，耐性扣點
+                no_improve_count += 1 
                 
             print(f"第 {gen+1} 代，連續未進步：{no_improve_count}/{PATIENCE}")
             
-            # 🌟 【加入這一段：打破近親繁殖的僵局】🌟
-            # 👑 【修復】：加上 > 0，防止第 5 代破紀錄時 (0 % 4 == 0) 錯誤滅絕王者！
             if no_improve_count > 0 and no_improve_count % 4 == 0:  
                 print(f"⚠️ 偵測到基因庫同質化，保留歷史最強，其餘重新隨機生成！")
-                # 保留歷史上最強的那一個 (HOF)
                 elite = toolbox.clone(hof[0])
-                # 把剩下 99 個全部殺掉，重新產生隨機的新基因
                 pop = toolbox.population(n=POP_SIZE)
-                pop[0] = elite  # 把最強的放回第 0 個位置保底
+                pop[0] = elite  
                 
-            # 觸發提前停止
             if no_improve_count >= PATIENCE:
                 print(f" [!] 偵測到演算法已收斂，提前停止於第 {gen+1} 代。")
                 break
-           
 
-    # 輸出結果
     final_global_best = hof[0]
     print("\n✅ 訓練完成！")
     print(f"最佳紅綠燈時間組合為：{final_global_best}")
-    print(f"總等待時間：{final_global_best.fitness.values[0]:.2f} 秒")
-    print(f"第一代等待時間：{first_values:.2f} 秒")
+    print(f"總等待時間(總分)：{final_global_best.fitness.values[0]:.2f} (車禍:{final_global_best.col_cnt}, 死鎖:{final_global_best.dl_cnt})")
+    print(f"第一代等待時間：{first_values:.2f}")
 
     try:
         notification.notify(
@@ -360,6 +315,5 @@ def main():
     csv_file.close()
     print(f"\n📄 已將所有結果寫入 {filename}")
 
-# --- 啟動保護 (必要) ---
 if __name__ == '__main__':
     main()

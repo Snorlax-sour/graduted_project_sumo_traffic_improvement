@@ -5,12 +5,13 @@ SUMO 交通模擬共用工具模組
 import traci
 import os
 import sys
-
+import xml.etree.ElementTree as ET
 # ==========================================
 # 📊 全域變數（用於計算獎勵的增量）
 # ==========================================
 last_total_waiting_time = 0.0
 last_total_queue_length = 0.0
+COLLISION_PENALTY = 5000
 
 def reset_global_state():
     """重置全域狀態（每次新模擬開始時呼叫）"""
@@ -73,7 +74,7 @@ def calculate_reward(tls_id, collision_count=0, time_in_current_phase=0):
         penalty_delta = max(0, delta_delay) * 2.0
         
         # 懲罰項 4: 車禍（嚴厲懲罰）
-        penalty_collision = collision_count * 1000.0
+        penalty_collision = collision_count * COLLISION_PENALTY
         
         
         
@@ -90,34 +91,27 @@ def calculate_reward(tls_id, collision_count=0, time_in_current_phase=0):
         print(f"⚠️ 計算獎勵時發生錯誤: {e}")
         return 0.0, 0.0
 
-def calculate_delay(tls_id, conn=None):
+def calculate_delay(tripinfo_filename):
     """
-    計算路口的總延遲（用於 GA 的適應度函數）
-    
-    Args:
-        tls_id: 交通號誌 ID
-        conn: TraCI 連線物件（多核心 GA 專用，單核心傳 None）
-    
-    Returns:
-        total_delay: 所有車輛的累計等待時間
+    [GA 專用] 從 tripinfo.xml 計算整場模擬的真實總延遲。
+    精準包含紅燈靜止、煞車減速、以及跟車緩慢移動的延遲 (timeLoss)。
     """
-    # 👇 支援多核心：如果傳入 conn，就用 conn；否則用全域 traci
-    connection = conn if conn is not None else traci
-    
+    if not tripinfo_filename or not os.path.exists(tripinfo_filename):
+        print(f"⚠️ 找不到 XML 檔案: {tripinfo_filename}")
+        return 999999.0
+
+    total_time_loss = 0.0
     try:
-        lanes = connection.trafficlight.getControlledLanes(tls_id)
-        unique_lanes = list(set(lanes))
-        
-        total_delay = sum([
-            connection.vehicle.getWaitingTime(veh_id)
-            for lane in unique_lanes
-            for veh_id in connection.lane.getLastStepVehicleIDs(lane)
-        ])
-        
-        return total_delay
-        
-    except Exception:
-        return 0.0
+        tree = ET.parse(tripinfo_filename)
+        root = tree.getroot()
+        for trip in root.findall("tripinfo"):
+            if "timeLoss" in trip.attrib:
+                total_time_loss += float(trip.attrib["timeLoss"])
+        return total_time_loss
+    except Exception as e:
+        print(f"⚠️ 解析 XML 失敗: {e}")
+        return 999999.0  # 給予極大懲罰淘汰這個壞基因
+
 
 def check_downstream_jam(tls_id, jam_threshold=0.85, conn=None):
     """
@@ -258,73 +252,56 @@ def update_crash_vehicles(active_crashes, conn=None):
 # ==========================================
 # 🚑 死鎖處理（瞬移版）- 👑 已修復紅燈誤判
 # ==========================================
-def handle_deadlock_vehicles(deadlock_threshold=90, conn=None):
+def handle_deadlock_vehicles(deadlock_threshold=90, conn=None, return_count=False):
     """
-    處理死鎖車輛（瞬移到路口後 10m，而非移除）
-    只有車禍或異常卡住才會瞬移，正常等紅燈絕對不會被處罰。
+    處理死鎖車輛（極簡精準版）
+    👑 核心邏輯：只救援「卡在十字路口內部 (Junction)」超過 90 秒的車輛。
+    正常車道上的塞車排隊完全不管，讓 AI 自行承擔 Delay 懲罰！
     """
     connection = conn if conn is not None else traci
     deadlock_penalty = 0
+    deadlock_count = 0  
     
     for v_id in connection.vehicle.getIDList():
-        # 如果車速幾乎停止
+        # 👑 1. 最優先判斷：這台車是否在路口內部 (SUMO 裡路口內的 edge 開頭是 ':')
+        current_edge = connection.vehicle.getRoadID(v_id)
+        if not current_edge.startswith(':'):
+            continue  # 不在路口內？那只是塞車排隊而已，直接跳過，不管等多久都不處罰！
+            
+        # 👑 2. 如果在路口內部，且車速幾乎停止
         if connection.vehicle.getSpeed(v_id) < 0.1:
-            # 如果等超過 90 秒
+            # 👑 3. 且卡在路口中間超過 90 秒 (這就是真正的死鎖！)
             if connection.vehicle.getWaitingTime(v_id) > deadlock_threshold:
                 try:
-                    # 👑 修正核心：精準判斷是否在等紅燈
-                    # getNextTLS 回傳: ((tlsID, tlsIndex, 距離, 狀態), ...)
-                    tls_info = connection.vehicle.getNextTLS(v_id)
-                    is_waiting_red = False
-                    if tls_info:
-                        dist = tls_info[0][2]
-                        state = tls_info[0][3]
-                        # 如果前方 200m 內有紅綠燈，且狀態是紅(r/R)或黃(y/Y)，就是乖乖等紅燈
-                        if dist < 200.0 and state.lower() in ['r', 'y']:
-                            is_waiting_red = True
+                    route = connection.vehicle.getRoute(v_id)
+                    route_index = connection.vehicle.getRouteIndex(v_id)
                     
-                    if is_waiting_red:
-                        continue  # 🟢 正常等紅燈，跳過不處罰也不瞬移！
-                    
-                    current_edge = connection.vehicle.getRoadID(v_id)
-                    
-                    # 情況 1: 在路口內部卡住 (通常是發生車禍或兩車卡死)
-                    if current_edge.startswith(':'):
-                        route = connection.vehicle.getRoute(v_id)
-                        route_index = connection.vehicle.getRouteIndex(v_id)
-                        
-                        if route_index + 1 < len(route):
-                            next_edge = route[route_index + 1]
-                            connection.vehicle.moveTo(v_id, f"{next_edge}_0", 10.0)
-                            print(f"pid: {os.getpid()} 🚑 [死鎖救援] {v_id} 於路口內卡死，瞬移到 {next_edge} 的 10m 處", flush=True)
-                            deadlock_penalty -= 500
-                        else:
-                            connection.vehicle.remove(v_id)
-                            deadlock_penalty -= 500
-                    
-                    # 情況 2: 在正常車道卡住 (非等紅燈，而是被前方車禍徹底堵死)
+                    # 嘗試把它往前推到下一個正常的車道上
+                    if route_index + 1 < len(route):
+                        next_edge = route[route_index + 1]
+                        connection.vehicle.moveTo(v_id, f"{next_edge}_0", 10.0)
+                        print(f"pid: {os.getpid()} 🚑 [路口死鎖救援] {v_id} 於路口內卡死，瞬移到 {next_edge} 疏通", flush=True)
+                        deadlock_penalty -= 500
+                        deadlock_count += 1
                     else:
-                        current_lane = connection.vehicle.getLaneID(v_id)
-                        current_pos = connection.vehicle.getLanePosition(v_id)
-                        lane_length = connection.lane.getLength(current_lane)
-                        new_pos = min(current_pos + 10.0, lane_length - 1.0)
+                        # 如果已經沒路可走，只好強制移除
+                        connection.vehicle.remove(v_id)
+                        print(f"pid: {os.getpid()} 🚑 [路口死鎖移除] {v_id} 於路口內卡死且無退路，強制移除", flush=True)
+                        deadlock_penalty -= 10000
+                        deadlock_count += 1
                         
-                        if new_pos > current_pos + 5.0:
-                            connection.vehicle.moveTo(v_id, current_lane, new_pos)
-                            print(f"pid: {os.getpid()} ⏩ [車禍推進] {v_id} 被前方事故波及卡死，向前推進 10m", flush=True)
-                            deadlock_penalty -= 300
-                        else:
-                            connection.vehicle.remove(v_id)
-                            deadlock_penalty -= 500
-                
                 except Exception as e:
                     try:
                         connection.vehicle.remove(v_id)
                         print(f"pid: {os.getpid()} ❌ [瞬移失敗] {v_id} 強制移除 ({e})", flush=True)
-                        deadlock_penalty -= 500
+                        deadlock_penalty -= 10000
+                        deadlock_count += 1
                     except:
                         pass
     
+    # 支援雙模式回傳 (GA 需要次數，RL 只需要分數)
+    if return_count:
+        return deadlock_penalty, deadlock_count
     return deadlock_penalty
 
 # ==========================================
@@ -404,6 +381,8 @@ def build_sumo_cmd(config_file="osm.sumocfg", use_gui=False, tripinfo_file=None,
     
     if tripinfo_file:
         cmd.extend(["--tripinfo-output", tripinfo_file])
+        # 👑 【核心修復】：強制記錄還卡在路上的塞車受害者！
+        cmd.append("--tripinfo-output.write-unfinished")
         
     if quiet:
         cmd.extend(["--no-warnings", "true", "--no-step-log", "true"])
