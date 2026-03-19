@@ -37,7 +37,7 @@ def get_total_queue_length(tls_id):
 
 def calculate_reward(tls_id, collision_count=0, time_in_current_phase=0):
     """
-    計算當前時間步的獎勵 (已升級：具備路口防死鎖與下游預見能力)
+    計算當前時間步的獎勵 (已升級：回傳獨立的四維度懲罰項)
     """
     global last_total_waiting_time
     
@@ -55,46 +55,39 @@ def calculate_reward(tls_id, collision_count=0, time_in_current_phase=0):
         
         penalty_waiting = current_total_waiting_time * 0.1
         penalty_queue = 0.5 * (current_total_queue_length ** 2)
-        
         delta_delay = current_total_waiting_time - last_total_waiting_time
         penalty_delta = max(0, delta_delay) * 2.0
         
-        # 👑 2. 進階指標：路口內部堵塞懲罰 (Junction Blocking Penalty)
-        # 找出路口內部的連通車道 (via lanes)
+        # 👑 計算四項獨立懲罰
+        p_wait = penalty_waiting + penalty_queue + penalty_delta
+        
+        # 2. 路口內部堵塞懲罰
         internal_lane_ids = set()
-        links = traci.trafficlight.getControlledLinks(tls_id)
-        for signal_group in links:
+        for signal_group in traci.trafficlight.getControlledLinks(tls_id):
             for conn in signal_group:
-                if len(conn) >= 3 and conn[2]:  # conn[2] 是路口內部的隱藏車道 ID
+                if len(conn) >= 3 and conn[2]:  
                     internal_lane_ids.add(conn[2])
                     
-        blocked_veh_count = 0
-        for int_lane in internal_lane_ids:
-            # 統計卡在十字路口「正中間」且靜止的車輛數
-            blocked_veh_count += traci.lane.getLastStepHaltingNumber(int_lane)
-            
-        # 只要車卡在路中央，每台車罰 500 分！這會逼迫 RL 學會不要給半殘的綠燈
-        penalty_junction_blocking = blocked_veh_count * 500.0 
+        blocked_veh_count = sum([traci.lane.getLastStepHaltingNumber(l) for l in internal_lane_ids])
+        p_junc = blocked_veh_count * 500.0 
         
-        # 👑 3. 進階指標：下游壅塞懲罰 (Downstream Jam Penalty)
-        penalty_downstream = 0.0
-        if check_downstream_jam(tls_id, jam_threshold=0.85):
-            # 下游已經滿了，如果此時還維持綠燈繼續把車塞進去，重罰！
-            penalty_downstream = 1000.0
+        # 3. 下游壅塞懲罰
+        p_down = 1000.0 if check_downstream_jam(tls_id, jam_threshold=0.85) else 0.0
             
-        # 4. 終極懲罰：車禍
-        penalty_collision = collision_count * COLLISION_PENALTY
+        # 4. 車禍懲罰
+        p_col = collision_count * COLLISION_PENALTY
         
         # 總獎勵結算
-        reward = -(penalty_waiting + penalty_queue + penalty_delta + 
-                   penalty_collision + penalty_junction_blocking + penalty_downstream)
+        reward = -(p_wait + p_junc + p_down + p_col)
         
         last_total_waiting_time = current_total_waiting_time
-        return reward, current_total_queue_length
+        
+        # 👑 將四個獨立的懲罰項打包回傳
+        return reward, current_total_queue_length, (p_wait, p_junc, p_down, p_col)
         
     except Exception as e:
         print(f"⚠️ 計算獎勵時發生錯誤: {e}")
-        return 0.0, 0.0
+        return 0.0, 0.0, (0.0, 0.0, 0.0, 0.0)
 
 def calculate_delay(tripinfo_filename):
     """
@@ -393,3 +386,47 @@ def build_sumo_cmd(config_file="osm.sumocfg", use_gui=False, tripinfo_file=None,
         cmd.extend(["--no-warnings", "true", "--no-step-log", "true"])
         
     return cmd
+
+
+def check_junction_blocking(tls_id, min_blocking_cars=1, conn=None):
+    """
+    檢查路口正中間（內部車道）是否有車輛卡死。
+    這是觸發 GA 危機接管 (Crisis B) 的核心判定函數。
+    
+    Args:
+        tls_id: 交通號誌 ID
+        min_blocking_cars: 容忍的卡死車輛數閾值。預設為 1 (只要有 1 台車停在路口中央就視為危機)
+        conn: TraCI 連線物件（多核心 GA 專用，單核心 RL 傳 None 即可）
+    
+    Returns:
+        True 如果路口被卡死，False 否則
+    """
+    connection = conn if conn is not None else traci
+    
+    try:
+        # 1. 取得路口內部隱藏的「連通車道 (viaLane)」
+        # SUMO 的 getControlledLinks 會回傳 (fromLane, toLane, viaLane)
+        links = connection.trafficlight.getControlledLinks(tls_id)
+        internal_lanes = set()
+        
+        for signal_group in links:
+            for link_info in signal_group:
+                # 確保 viaLane 存在且不為空字串
+                if len(link_info) >= 3 and link_info[2]: 
+                    internal_lanes.add(link_info[2])
+                    
+        # 2. 統計這些路口中央的車道上，有沒有「速度趨近於 0」的靜止車輛
+        blocked_count = 0
+        for int_lane in internal_lanes:
+            # getLastStepHaltingNumber 內建會計算速度小於 0.1m/s 的車輛數
+            blocked_count += connection.lane.getLastStepHaltingNumber(int_lane)
+            
+        # 3. 判斷是否達到危機閾值
+        if blocked_count >= min_blocking_cars:
+            return True
+            
+        return False
+        
+    except Exception as e:
+        print(f"⚠️ 路口淨空(Junction Blocking)偵測發生錯誤: {e}")
+        return False

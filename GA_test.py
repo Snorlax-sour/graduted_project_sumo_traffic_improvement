@@ -134,7 +134,7 @@ def main():
     # 👑 在 main 裡面先取得受控路口的所有車道清單
     controlled_lanes = set(traci.trafficlight.getControlledLanes(TRAFFIC_LIGHT_ID))
     step_collision_counter = 0 # 用於每 10 秒結算一次
-    continuous_reward_drop = 0  # 👈 新增這個初始化（在 while 前面）
+    step_deadlock_penalty_sum = 0
     while step < MAX_SIMULATION_STEPS:
         try:
             traci.simulationStep()
@@ -162,31 +162,36 @@ def main():
 
             # 救災防死鎖與計算罰款
             deadlock_penalty = sumo_utils.handle_deadlock_vehicles(90)
-                        
+            step_deadlock_penalty_sum += deadlock_penalty
             
             
             # 偽裝成 RL 輸出給畫圖腳本
             if step % ACTION_INTERVAL == 0:
-                reward, _ = sumo_utils.calculate_reward(TRAFFIC_LIGHT_ID, step_collision_counter, time_in_current_phase)
+                # 🚨 接收四維度懲罰
+                reward, _, p_details = sumo_utils.calculate_reward(TRAFFIC_LIGHT_ID, step_collision_counter, time_in_current_phase)
+                p_wait, p_junc, p_down, p_col = p_details
+                
                 step_collision_counter = 0 # 歸零
-                reward += deadlock_penalty 
+                reward += step_deadlock_penalty_sum
+                step_deadlock_penalty_sum = 0
                 cumulative_reward += reward
                 phase_state = traci.trafficlight.getRedYellowGreenState(TRAFFIC_LIGHT_ID)
                 
                 jammed = sumo_utils.check_downstream_jam(TRAFFIC_LIGHT_ID, jam_threshold=0.85)
+                # ... 略過 jammed 處理邏輯 ...
+                
+                
                 if jammed and not is_currently_jammed:
                     is_currently_jammed = True
                     jam_start_time = step
                 elif not jammed and is_currently_jammed:
                     is_currently_jammed = False
                     report_jam_events.append((jam_start_time, step))
-                # 👑 【新增】：真實計算 GA 的連續負獎勵掉分次數
-                if reward < 0:
-                    continuous_reward_drop += 1
-                else:
-                    continuous_reward_drop = 0
+                
+           
                 # 👑 偽裝輸出 (包含 time_in_current_phase)
-                print(f"[GA_TEST]  [GA] 時間: {step}s | 綠燈: {time_in_current_phase}s | {ACTION_INTERVAL}秒獎勵: {reward:.2f} | 掉分: {continuous_reward_drop}/20 | Epsilon: 0.000 | 狀態: '{phase_state}'", flush=True)
+                # 👑 全新四維度 Log 輸出 (畫圖腳本才抓得到)
+                print(f"[GA_TEST] 時間: {step}s | 綠燈: {time_in_current_phase}s | {ACTION_INTERVAL}秒獎勵: {reward:.2f} | 延遲罰: {p_wait:.2f} | 路口罰: {p_junc:.2f} | 下游罰: {p_down:.2f} | 車禍罰: {p_col:.2f} | Epsilon: 0.000 | 狀態: '{phase_state}'", flush=True)
 
         except traci.TraCIException:
             print("SUMO 連線中斷。")

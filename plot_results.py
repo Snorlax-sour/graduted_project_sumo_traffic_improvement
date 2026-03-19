@@ -18,23 +18,24 @@ def get_zone_type(step, jam_periods, penalty_periods):
     return "正常區間"
 
 def process_episode_data(lines, log_file, ep_label=""):
-    """獨立處理「單一局數 (Episode)」的數據並產出圖表與報告"""
-    steps, rewards, drops, epsilons = [], [], [], [] 
+    """獨立處理單一局數，並解析四維度懲罰"""
+    steps, rewards, epsilons = [], [], []
+    p_wait_list, p_junc_list, p_down_list, p_col_list = [], [], [], []
+    
     jam_periods, penalty_periods = [], []
     collision_times, rescue_times, removal_times = [], [], []
     
-    is_test_mode = False 
-    is_rl_mode = "RL" in os.path.basename(log_file).upper()  
+    is_test_mode = "TEST" in log_file.upper() or "BASELINE" in log_file.upper()
     
     pending_jam, pending_penalty = False, False
     jam_start, penalty_start = None, None
     current_step = 0
     end_time = None 
     final_reward = None  
-    has_rl_penalty_text = False
     
-    # --- 正規表示法 ---
-    pattern = re.compile(r"時間:\s*(\d+)s \| .*?10秒獎勵:\s*(-?\d+\.\d+) \| 掉分:\s*(\d+)/20 \| Epsilon:\s*(\d+\.\d+)")
+    # 👑 新版正規表示法：抓取獨立的四個懲罰項
+    pattern = re.compile(r"時間:\s*(\d+)s \| .*?10秒獎勵:\s*(-?\d+\.\d+) \| 延遲罰:\s*(\d+\.\d+) \| 路口罰:\s*(\d+\.\d+) \| 下游罰:\s*(\d+\.\d+) \| 車禍罰:\s*(\d+\.\d+) \| Epsilon:\s*(\d+\.\d+)")
+    
     collision_pattern = re.compile(r"💥 \[REAL_COLLISION\]|Collision")
     rescue_pattern = re.compile(r"\[路口死鎖救援\]|瞬移到|向前推進")
     removal_pattern = re.compile(r"\[路口死鎖移除\]|強制移除|瞬移失敗")
@@ -42,40 +43,47 @@ def process_episode_data(lines, log_file, ep_label=""):
     end_pattern = re.compile(r"於第\s*(\d+)\s*秒提早結束") 
 
     for line in lines:
-        if "[TEST]" in line or "BASELINE" in log_file.upper() or "GATEST" in log_file.upper():
-            is_test_mode = True
-
-        # 偵測事件
-        if removal_pattern.search(line): removal_times.append(current_step)
-        elif rescue_pattern.search(line): rescue_times.append(current_step)
         if collision_pattern.search(line): collision_times.append(current_step)
+        if rescue_pattern.search(line): rescue_times.append(current_step)
+        if removal_pattern.search(line): removal_times.append(current_step)
 
         match = pattern.search(line)
         if match:
             current_step = int(match.group(1))
-            steps.append(current_step); rewards.append(float(match.group(2)))
-            d_val = int(match.group(3)); drops.append(d_val); epsilons.append(float(match.group(4)))
+            steps.append(current_step)
+            rewards.append(float(match.group(2)))
             
-            if "下游癱瘓" in line:
+            p_w = float(match.group(3))
+            p_j = float(match.group(4))
+            p_d = float(match.group(5))
+            p_c = float(match.group(6))
+            
+            p_wait_list.append(p_w)
+            p_junc_list.append(p_j)
+            p_down_list.append(p_d)
+            p_col_list.append(p_c)
+            epsilons.append(float(match.group(7)))
+            
+            # 👑 基於真實物理懲罰自動標記「崩潰區間」
+            if p_d > 0:
                 if not pending_jam: jam_start = current_step; pending_jam = True
             elif pending_jam: jam_periods.append((jam_start, current_step)); pending_jam = False
                 
-            if "嚴重失控" in line or d_val >= 20:
-                if not penalty_start: penalty_start = current_step; has_rl_penalty_text = True
-            elif penalty_start and d_val < 20:
-                penalty_periods.append((penalty_start, current_step)); penalty_start = None
+            if p_j > 0 or p_c > 0: # 只要路口卡死或車禍，就是嚴重失控(灰色)
+                if not penalty_start: penalty_start = current_step; pending_penalty = True
+            elif pending_penalty:
+                penalty_periods.append((penalty_start, current_step)); pending_penalty = False; penalty_start = None
 
         reward_match = reward_pattern.search(line)
         if reward_match: final_reward = float(reward_match.group(1))
         end_match = end_pattern.search(line)
         if end_match: end_time = int(end_match.group(1))
 
-    if jam_start: jam_periods.append((jam_start, current_step))
-    if penalty_start: penalty_periods.append((penalty_start, current_step))
+    if pending_jam: jam_periods.append((jam_start, current_step))
+    if pending_penalty: penalty_periods.append((penalty_start, current_step))
 
     if not steps: return False
 
-    # --- 計算統計與佔比 ---
     tot_col = len(collision_times); tot_rem = len(removal_times); tot_res = len(rescue_times)
     total_jam_time = sum(e - s for s, e in jam_periods)
     total_pen_time = sum(e - s for s, e in penalty_periods)
@@ -86,7 +94,6 @@ def process_episode_data(lines, log_file, ep_label=""):
     mode_str = "測試模式 (TEST)" if is_test_mode else "訓練模式 (TRAIN)"
     pure_name = os.path.basename(log_file).replace('.txt', '')
     
-    # 產出區段明細字串
     def get_interval_details(periods, collisions, removals, rescues, total_c, total_rem, total_res):
         details = []
         for i, (s, e) in enumerate(periods, 1):
@@ -97,7 +104,7 @@ def process_episode_data(lines, log_file, ep_label=""):
             details.append(f"  🔸 第 {s}s ~ {e}s (持續 {e-s}s，區間內車禍: {c_cnt} 次 ({c_pct:.1f}%), 區間內移除: {rem_cnt}次 ({rem_pct:.1f}%), 區間內移動: {res_cnt}次 ({res_pct:.1f}%))")
         return "\n".join(details) if details else "  無"
 
-    # --- 組合完整報告 ---
+    # ================= 嚴格遵守原始文字報告格式 =================
     report_content = [
         "="*60,
         f"📊 交通控制分析報告 - {mode_str} {ep_label.replace('_', '')}".strip(),
@@ -124,16 +131,16 @@ def process_episode_data(lines, log_file, ep_label=""):
         "="*60
     ]
     
-    # 存檔報告 (附加 ep_label，如果是單局則無後綴)
     with open(f"report_{pure_name}{ep_label}.txt", 'w', encoding='utf-8') as f: 
         f.write("\n".join(report_content))
         print(f"\n✅ 成功產出文字報告: report_{pure_name}{ep_label}.txt")
 
-    # ================= 繪圖 =================
+    # ================= 繪圖 (嚴格保持原有風格) =================
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 10), sharex=True)
     title_suffix = f" ({ep_label.replace('_', '')})" if ep_label else ""
     ax1.set_title(f'Performance Analysis: {pure_name}{title_suffix}', fontsize=14, fontweight='bold')
     
+    # [原封不動] 上半部圖表：總分、移動平均、標記點
     ax1.plot(steps, rewards, color='deepskyblue', alpha=0.3, label='10s Reward')
     if len(rewards) >= 20:
         mv = np.convolve(rewards, np.ones(20), 'valid') / 20
@@ -143,15 +150,8 @@ def process_episode_data(lines, log_file, ep_label=""):
     ax1.scatter(rescue_times, [min(rewards)*1.05]*len(rescue_times), color='green', marker='o', s=30, label='Rescue Move (o)')
     ax1.scatter(removal_times, [min(rewards)*1.15]*len(removal_times), color='black', marker='^', s=60, label='Vehicle Removal (^)')
 
-    ax2.plot(steps, drops, color='orange', label='Waiting Vehicle Count')
-    ax2.axhline(y=20, color='red', linestyle='--', linewidth=2, label='Severe Jam Threshold (20)') 
-
-    for (s, e) in jam_periods:
-        ax1.axvspan(s, e, color='purple', alpha=0.15)
-        ax2.axvspan(s, e, color='purple', alpha=0.15)
-    for (s, e) in penalty_periods:
-        ax1.axvspan(s, e, color='gray', alpha=0.25)
-        ax2.axvspan(s, e, color='gray', alpha=0.25)
+    for (s, e) in jam_periods: ax1.axvspan(s, e, color='purple', alpha=0.15)
+    for (s, e) in penalty_periods: ax1.axvspan(s, e, color='gray', alpha=0.25)
 
     jam_patch = mpatches.Patch(color='purple', alpha=0.15, label='Downstream Jam (Purple Zone)')
     fail_patch = mpatches.Patch(color='gray', alpha=0.25, label='Severe Failure (Gray Zone)')
@@ -160,7 +160,18 @@ def process_episode_data(lines, log_file, ep_label=""):
     rem_mark = Line2D([0], [0], color='black', marker='^', linestyle='None', markersize=8, label='Vehicle Removal (^)')
     
     ax1.legend(handles=[jam_patch, fail_patch, col_mark, res_mark, rem_mark], loc='upper left', bbox_to_anchor=(1.02, 1), title="Legend & Symbols")
-    ax2.legend(loc='upper left', bbox_to_anchor=(1.02, 1), title="Metrics")
+
+    # 👑 【核心重構】下半部圖表：從單線改成四維度堆疊面積圖
+    ax2.stackplot(steps, p_wait_list, p_down_list, p_junc_list, p_col_list,
+                  labels=['Delay & Queue', 'Downstream Jam (Purple)', 'Junction Blocking (Gray)', 'Collision (Red)'],
+                  colors=['#FFCC99', '#DDA0DD', '#A9A9A9', '#FF9999'], alpha=0.8)
+
+    # 保留下半部的背景色對照
+    for (s, e) in jam_periods: ax2.axvspan(s, e, color='purple', alpha=0.15)
+    for (s, e) in penalty_periods: ax2.axvspan(s, e, color='gray', alpha=0.25)
+
+    ax2.set_ylabel("Penalty Breakdown (Scores)")
+    ax2.legend(loc='upper left', bbox_to_anchor=(1.02, 1), title="Penalty Components")
 
     plt.tight_layout(rect=[0, 0, 0.85, 1])
     plt.savefig(f"result_{pure_name}{ep_label}.png", dpi=150)
@@ -169,46 +180,24 @@ def process_episode_data(lines, log_file, ep_label=""):
     return True
 
 def plot_log_data(log_file):
-    """讀取檔案並切分 Episode"""
-    if not os.path.exists(log_file):
-        print(f"⚠️ 找不到檔案: {log_file}")
-        return
-
-    with open(log_file, 'r', encoding='utf-8') as f:
-        lines = f.readlines()
+    if not os.path.exists(log_file): return
+    with open(log_file, 'r', encoding='utf-8') as f: lines = f.readlines()
         
     episodes = []
-    current_ep_lines = []
-    current_ep_label = ""
-    
+    current_ep_lines, current_ep_label = [], ""
     for line in lines:
         if "🏁 正在啟動第" in line:
-            # 遇到新的 Episode，把之前的數據封存
-            if current_ep_lines:
-                episodes.append((current_ep_label, current_ep_lines))
+            if current_ep_lines: episodes.append((current_ep_label, current_ep_lines))
             current_ep_lines = [line]
-            
-            # 抓取局數編號
             ep_match = re.search(r"🏁 正在啟動第\s*(\d+)\s*局模擬", line)
-            if ep_match:
-                current_ep_label = f"_Ep{ep_match.group(1)}"
-            else:
-                current_ep_label = "_EpX"
+            current_ep_label = f"_Ep{ep_match.group(1)}" if ep_match else "_EpX"
         else:
             current_ep_lines.append(line)
             
-    # 把最後一個 Episode 封存
-    if current_ep_lines:
-        episodes.append((current_ep_label, current_ep_lines))
+    if current_ep_lines: episodes.append((current_ep_label, current_ep_lines))
         
-    # 開始逐局處理
-    processed_count = 0
     for ep_label, ep_lines in episodes:
-        if process_episode_data(ep_lines, log_file, ep_label):
-            processed_count += 1
-            
-    if processed_count == 0:
-        print(f"⚠️ 檔案 {log_file} 中找不到有效的模擬數據。")
+        process_episode_data(ep_lines, log_file, ep_label)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(); parser.add_argument('log_files', nargs='+'); args = parser.parse_args()

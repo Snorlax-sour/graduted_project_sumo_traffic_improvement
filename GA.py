@@ -127,20 +127,18 @@ def evaluate(individual):
             # ==========================================
 
             # 1. 路口內部車輛存留時間 (Junction Vehicle Retention, JVR)
-            current_vehicles = conn.vehicle.getIDList()
-            for vid in current_vehicles:
-                edge = conn.vehicle.getRoadID(vid)
-                # 判斷是否在路口內部 (SUMO 的路口內部 edge 開頭為 ':')
-                if edge.startswith(':'):
+            active_vids = conn.vehicle.getIDList()
+            # 先清理幽靈車輛 (已經離開路口，或是被系統強制移除/瞬移的車)
+            for vid in list(junction_retention_dict.keys()):
+                if vid not in active_vids or not conn.vehicle.getRoadID(vid).startswith(':'):
+                    del junction_retention_dict[vid]
+
+            # 再針對目前還在場上的車輛進行統計
+            for vid in active_vids:
+                if conn.vehicle.getRoadID(vid).startswith(':'):
                     junction_retention_dict[vid] = junction_retention_dict.get(vid, 0) + 1
-                    # 容忍閾值：超過 5 秒未離開路口，開始指數級扣分
                     if junction_retention_dict[vid] > 5:
-                        # 每多停 1 秒，懲罰越重 (1.5次方)
-                        total_jvr_penalty += (junction_retention_dict[vid] - 5) ** 1.5 
-                else:
-                    # 車輛順利離開路口，清除紀錄
-                    if vid in junction_retention_dict:
-                        del junction_retention_dict[vid]
+                        total_jvr_penalty += (junction_retention_dict[vid] - 5) ** 1.5
 
             # 2. 相位過渡壓力值 (Phase Transition Pressure)
             current_phase = conn.trafficlight.getPhase(TRAFFIC_LIGHT_ID)

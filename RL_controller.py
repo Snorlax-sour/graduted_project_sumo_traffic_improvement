@@ -188,9 +188,9 @@ def run_single_episode(episode_num, agent, sumoCmd, is_train_mode, instance_id, 
     time_in_current_phase = 0    
     target_phase_duration = 0    
     last_state = None            
-    last_action = None           
+    
     control_mode = "RL"               
-    continuous_reward_drop = 0        
+    
     ga_override_cycles_left = 0       
     last_phase = -1                   
     empty_step_counter = 0
@@ -210,6 +210,7 @@ def run_single_episode(episode_num, agent, sumoCmd, is_train_mode, instance_id, 
     # ==========================================
     # 🏃 進入時間步進迴圈 (單局開始)
     # ==========================================
+    step_deadlock_penalty_sum = 0
     while step < MAX_SIMULATION_STEPS:
         try:
             traci.simulationStep()
@@ -228,7 +229,7 @@ def run_single_episode(episode_num, agent, sumoCmd, is_train_mode, instance_id, 
             step_collision_counter += collisions
             sumo_utils.update_crash_vehicles(active_crashes)
             deadlock_penalty = sumo_utils.handle_deadlock_vehicles(deadlock_threshold=90)
-                        
+            step_deadlock_penalty_sum += deadlock_penalty
             new_phase = traci.trafficlight.getPhase(TRAFFIC_LIGHT_ID)
             if new_phase != current_phase:
                 current_phase = new_phase
@@ -248,8 +249,8 @@ def run_single_episode(episode_num, agent, sumoCmd, is_train_mode, instance_id, 
                     
                     if ga_override_cycles_left <= 0:
                         # 👑 核心改動：給予 RL 5次機會 (20-10 = 10)
-                        continuous_reward_drop = 10
-                        print(f"✅ GA 示範結束，控制權交還。RL 進入「{20-continuous_reward_drop}次限制試用期」(目前掉分: {continuous_reward_drop}/20)", flush=True)
+                        
+                        
                         control_mode = "RL"
             last_phase = current_phase
             
@@ -262,37 +263,33 @@ def run_single_episode(episode_num, agent, sumoCmd, is_train_mode, instance_id, 
                 if control_mode == "RL":
                     if time_in_current_phase > 0 and time_in_current_phase % ACTION_INTERVAL == 0:
                         current_state = get_state(TRAFFIC_LIGHT_ID)
-
+                        reward += step_deadlock_penalty_sum
+                        step_deadlock_penalty_sum = 0 # 結算後歸零
                         if last_state is not None:
-                            # 🚨 修正：已改回正確的 calculate_reward
-                            reward, _ = sumo_utils.calculate_reward(TRAFFIC_LIGHT_ID, step_collision_counter, time_in_current_phase)
-                            step_collision_counter = 0 # 👑 結算後歸零
-                            reward += deadlock_penalty
+                            # 🚨 接收四維度懲罰
+                            reward, _, p_details = sumo_utils.calculate_reward(TRAFFIC_LIGHT_ID, step_collision_counter, time_in_current_phase)
+                            p_wait, p_junc, p_down, p_col = p_details
+                            
+                            step_collision_counter = 0 
+                            
                             cumulative_reward += reward
                             phase_state = traci.trafficlight.getRedYellowGreenState(TRAFFIC_LIGHT_ID)
                             
-                            if sumo_utils.check_downstream_jam(TRAFFIC_LIGHT_ID, 0.85):
-                                print("🚨 下游癱瘓，強制切換 GA 疏導！", flush=True)
-                                control_mode = "GA"
-                                ga_override_cycles_left = 3
+                            is_downstream_jammed = sumo_utils.check_downstream_jam(TRAFFIC_LIGHT_ID, 0.85)  
+                            is_junction_blocked = sumo_utils.check_junction_blocking(TRAFFIC_LIGHT_ID) 
+
+                            if is_downstream_jammed or is_junction_blocked:
+                                if control_mode == "RL":
+                                    print(f"🚨 [實體危機觸發] 下游癱瘓: {is_downstream_jammed} | 路口卡死: {is_junction_blocked}")
+                                    print("🚑 GA 強制接管路口，進行疏導！", flush=True)
+                                    control_mode = "GA"
+                                    ga_override_cycles_left = 3
+                                    continue
                             else:
-                                # 👑 真實計分邏輯
-                                if reward < 0:
-                                    continuous_reward_drop += 1
-                                    
-                                    # 如果掉分超過 20，直接強制交給 GA！
-                                    if continuous_reward_drop >= 20:
-                                        print(f"📉 RL 連續負獎勵 {continuous_reward_drop} 次，觸發 GA 保護機制！", flush=True)
-                                        control_mode = "GA"
-                                        ga_override_cycles_left = 3
-                                else:
-                                    # 👑 只要拿到一次正獎勵，立刻恢復完整權限
-                                    if continuous_reward_drop > 0:
-                                        print(f"🌟 RL 表現回升 (Reward > 0)，正式通過試用期，掉分紀錄歸零。", flush=True)
-                                    continuous_reward_drop = 0
-                                    
-                            print(f"{mode_label} 🤖 [RL] 時間: {step}s | 綠燈: {time_in_current_phase}s | {ACTION_INTERVAL}秒獎勵: {reward:.2f} | 掉分: {continuous_reward_drop}/20 | Epsilon: {agent.exploration_rate:.3f} | 狀態: '{phase_state}'", flush=True)
+                                control_mode = "RL"
                             
+                            # 👑 全新四維度 Log 輸出 (移除了無意義的掉分)
+                            print(f"{mode_label} 🤖 [RL] 時間: {step}s | 綠燈: {time_in_current_phase}s | 10秒獎勵: {reward:.2f} | 延遲罰: {p_wait:.2f} | 路口罰: {p_junc:.2f} | 下游罰: {p_down:.2f} | 車禍罰: {p_col:.2f} | Epsilon: {agent.exploration_rate:.3f} | 狀態: '{phase_state}'", flush=True)
                             if is_train_mode:
                                 agent.learn(last_state, 0, reward, current_state) 
 
@@ -315,28 +312,30 @@ def run_single_episode(episode_num, agent, sumoCmd, is_train_mode, instance_id, 
                     ga_dur = GA_OPTIMAL_PHASES[0] if current_phase == 0 else GA_OPTIMAL_PHASES[1]
                     
                     if time_in_current_phase > 0 and time_in_current_phase % ACTION_INTERVAL == 0:
-                        current_state = get_state(TRAFFIC_LIGHT_ID)
-                        reward, _ = sumo_utils.calculate_reward(TRAFFIC_LIGHT_ID, step_collision_counter, time_in_current_phase)
+                        # (GA 模式不需要取得 current_state，因為不學習也不決策)
+                        
+                        # 🚨 接收四維度懲罰 (計算分數是為了畫圖和觀察，不是為了學習)
+                        reward, _, p_details = sumo_utils.calculate_reward(TRAFFIC_LIGHT_ID, step_collision_counter, time_in_current_phase)
+                        p_wait, p_junc, p_down, p_col = p_details
+                        reward += step_deadlock_penalty_sum
+                        step_deadlock_penalty_sum = 0 # 結算後歸零
+                        step_collision_counter = 0 
+                        
                         cumulative_reward += reward
                         phase_state = traci.trafficlight.getRedYellowGreenState(TRAFFIC_LIGHT_ID)
                         
-                        # 👑 讓 GA 也面對真實的成績單！
-                        if reward < 0:
-                            continuous_reward_drop += 1
-                        else:
-                            continuous_reward_drop = 0
-                            
-                        print(f"{mode_label} 🧬 [GA] 時間: {step}s | 綠燈: {time_in_current_phase}s / {ga_dur}s | {ACTION_INTERVAL}秒獎勵: {reward:.2f} | 掉分: {continuous_reward_drop}/20 | Epsilon: {agent.exploration_rate:.3f} | 狀態: '{phase_state}'", flush=True)
+                        # 🛑 移除危機偵測與交接邏輯！
+                        # GA 既然已經在台上救援，就讓它專心把剩餘的 ga_override_cycles_left 跑完！
+                        # 什麼時候交接？交由上面第 164 行的 "if current_phase == 0:" 區塊去負責！
 
-                        if is_train_mode and last_state is not None:
-                            agent.learn(last_state, 0, reward, current_state)
-                        last_state = current_state
+                        # 👑 全新四維度 Log 輸出 (改成 GA 專屬的標籤)
+                        print(f"{mode_label} 🧬 [GA] 時間: {step}s | 綠燈: {time_in_current_phase}s / {ga_dur}s | 10秒獎勵: {reward:.2f} | 延遲罰: {p_wait:.2f} | 路口罰: {p_junc:.2f} | 下游罰: {p_down:.2f} | 車禍罰: {p_col:.2f} | Epsilon: 0.000 | 狀態: '{phase_state}'", flush=True)
+                        
+                        # 🛑 核心修復：徹底切斷記憶連結，避免污染 RL
+                        last_state = None 
 
                     if time_in_current_phase >= ga_dur:
                         print(f"⚡ [GA] 達到最佳秒數 {ga_dur}s，切換紅綠燈！", flush=True)
-                        if is_train_mode and last_state is not None:
-                            current_state = get_state(TRAFFIC_LIGHT_ID)
-                            agent.learn(last_state, 1, 0, current_state)
                         traci.trafficlight.setPhase(TRAFFIC_LIGHT_ID, (current_phase + 1) % num_phases)
 
             # ==========================================

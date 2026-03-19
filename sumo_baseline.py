@@ -79,8 +79,7 @@ def main():
     # 👑 新增：追蹤目前紅綠燈的相位與持續時間
     current_phase = traci.trafficlight.getPhase(TRAFFIC_LIGHT_ID)
     time_in_current_phase = 0
-    # 👇 新增這個計數器 👇
-    continuous_reward_drop = 0
+    step_deadlock_penalty_sum = 0
     # 👑 在 main 裡面先取得受控路口的所有車道清單
     controlled_lanes = set(traci.trafficlight.getControlledLanes(TRAFFIC_LIGHT_ID))
     step_collision_counter = 0 # 用於每 10 秒結算一次
@@ -110,16 +109,19 @@ def main():
             # 3. 救災防死鎖與計算罰款
             sumo_utils.update_crash_vehicles(active_crashes)
             deadlock_penalty = sumo_utils.handle_deadlock_vehicles()
+            step_deadlock_penalty_sum += deadlock_penalty
             # 4. 每 5 秒輸出一次偽裝成 RL 的 Log，餵給畫圖腳本！
             if step % ACTION_INTERVAL == 0:
-                # 這裡也要修改 calculate_reward 讓它能接收車禍數
-                reward, _ = sumo_utils.calculate_reward(TRAFFIC_LIGHT_ID, step_collision_counter, time_in_current_phase)
-                step_collision_counter = 0 # 歸零
-                reward += deadlock_penalty 
+               # 🚨 接收四維度懲罰
+                reward, _, p_details = sumo_utils.calculate_reward(TRAFFIC_LIGHT_ID, step_collision_counter, time_in_current_phase)
+                p_wait, p_junc, p_down, p_col = p_details
+                
+                step_collision_counter = 0 
+                reward += step_deadlock_penalty_sum
+                step_deadlock_penalty_sum = 0
                 cumulative_reward += reward
                 phase_state = traci.trafficlight.getRedYellowGreenState(TRAFFIC_LIGHT_ID)
                 
-                # 偵測壅塞以觸發 plot_results 的紫色背景
                 jammed = sumo_utils.check_downstream_jam(TRAFFIC_LIGHT_ID, jam_threshold=0.85)
                 if jammed and not is_currently_jammed:
                     print("🚨 下游癱瘓，強制切換 GA 疏導！", flush=True) # 觸發畫圖的紫色區塊
@@ -129,14 +131,11 @@ def main():
                     print("✅ GA 示範結束，控制權交還給 RL！", flush=True) # 結束畫圖的紫色區塊
                     is_currently_jammed = False
                     report_jam_events.append((jam_start_time, step))
-                # 👇👇👇 👑 新增：真實計算連續負獎勵掉分次數 👇👇👇
-                if reward < 0:
-                    continuous_reward_drop += 1
-                else:
-                    continuous_reward_drop = 0
+                
                 # 👑 【核心】：列印出與 RL 完美相容的正規表示式 Log
-                # 這樣 plot_results.py 的 `時間:\s*(\d+)s \| 綠燈.*? \| 5秒獎勵:\s*(-?\d+\.\d+) \| 掉分:\s*(\d+)/20 \| Epsilon:\s*(\d+\.\d+)` 就能抓到！
-                print(f"[BASELINE] 時間: {step}s | 綠燈: {time_in_current_phase}s | {ACTION_INTERVAL}秒獎勵: {reward:.2f} | 掉分: {continuous_reward_drop}/20 | Epsilon: 0.000 | 狀態: '{phase_state}'", flush=True)
+                # 這樣 plot_results.py 的 `時間:\s*(\d+)s \| 綠燈.*? \| 5秒獎勵:\s*(-?\d+\.\d+) \| Epsilon:\s*(\d+\.\d+)` 就能抓到！
+                # 👑 全新四維度 Log 輸出
+                print(f"[BASELINE] 時間: {step}s | 綠燈: {time_in_current_phase}s | 10秒獎勵: {reward:.2f} | 延遲罰: {p_wait:.2f} | 路口罰: {p_junc:.2f} | 下游罰: {p_down:.2f} | 車禍罰: {p_col:.2f} | Epsilon: 0.000 | 狀態: '{phase_state}'", flush=True)
 
         except traci.TraCIException:
             print("SUMO 連線中斷。")
