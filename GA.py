@@ -197,11 +197,11 @@ def evaluate(individual):
         # 可選：印出各項懲罰以便 Debug，確保權重沒有失衡
         print(f"[PID {pid}] Delay: {delay:.1f} | Collisions: {total_collision_count} | JVR: {total_jvr_penalty:.1f} | Trans: {total_phase_transition_penalty:.1f} | Downstream: {total_downstream_penalty:.1f}")
 
-        return (final_penalty_score, total_collision_count, total_deadlock_count)   
+        return (final_penalty_score, total_collision_count, total_deadlock_count, pid)   
             
     except Exception as e:
         print(f"Error in PID {pid}: {e}")
-        return (999999.0, 0, 0) 
+        return (999999.0, 0, 0, pid) 
     finally:
         try: traci.getConnection(connection_label).close()
         except: pass
@@ -254,9 +254,8 @@ def main():
 
     csv_file = open(file=filename, mode="w", newline="", encoding="utf-8")
     csv_writer = csv.writer(csv_file)
-    # 👑 【修正】CSV 標題新增 車禍 與 死鎖 欄位
-    csv_writer.writerow(["generation", "phase1", "phase2", "total_score", "collisions", "deadlocks", "os_pid"])
-
+    # 👑 【進階】新增 individual_idx (個體編號) 與 worker_pid (代跑核心)
+    csv_writer.writerow(["generation", "individual_idx", "phase1", "phase2", "total_score", "collisions", "deadlocks", "worker_pid"])
     pop = toolbox.population(n=POP_SIZE)
     first_values = 0
     hof = tools.HallOfFame(1) 
@@ -272,10 +271,15 @@ def main():
             ind.fitness.values = (res[0],) # 只把總分塞給 GA
             ind.col_cnt = res[1]           # 掛上車禍名牌
             ind.dl_cnt = res[2]            # 掛上死鎖名牌
-            
+            ind.worker_pid = res[3]        # 👑 掛上工人名牌 (NEW)
+
+
         hof.update(pop)
         first_values = hof[0].fitness.values[0] 
-            
+        # 👑 【新增】：將 Gen 0 的 100 個個體全部寫入 CSV
+        for idx, ind in enumerate(pop):
+            csv_writer.writerow([0, idx, ind[0], ind[1], f"{ind.fitness.values[0]:.2f}", ind.col_cnt, ind.dl_cnt, ind.worker_pid])
+        csv_file.flush()
         print(f"✅ Gen 0 初始群體評估完成！\n")
         PATIENCE = 10  
         no_improve_count = 0
@@ -304,7 +308,7 @@ def main():
                 ind.fitness.values = (res[0],) # 只把總分塞給 GA
                 ind.col_cnt = res[1]           # 更新車禍名牌
                 ind.dl_cnt = res[2]            # 更新死鎖名牌
-
+                ind.worker_pid = res[3]        # 👑 掛上工人名牌 (NEW)
             pop[:] = offspring
             hof.update(pop)
             
@@ -317,9 +321,15 @@ def main():
             print(f"第 {gen+1} 代 歷史最佳：{global_best}, 總分: {global_best.fitness.values[0]:.2f} (車禍:{global_best.col_cnt}, 死鎖:{global_best.dl_cnt})")
 
             current_best_fit = hof[0].fitness.values[0]
-            # 👑 【修正】寫入 CSV 時，把名牌資訊也寫進去
-            csv_writer.writerow([gen + 1, current_gen_best[0], current_gen_best[1], f"{current_gen_best.fitness.values[0]:.2f}", current_gen_best.col_cnt, current_gen_best.dl_cnt, f"{os.getpid()}"])
+            # ------------------------------------------------------------
+            # 👑 【核心新增】：將本代 100 個個體全部寫入 CSV！
+            # ------------------------------------------------------------
+            for idx, ind in enumerate(pop):
+                # 如果這個個體是菁英保留(沒有重新評估)，他可能帶有舊的 worker_pid，安全讀取
+                w_pid = getattr(ind, 'worker_pid', os.getpid())
+                csv_writer.writerow([gen + 1, idx, ind[0], ind[1], f"{ind.fitness.values[0]:.2f}", ind.col_cnt, ind.dl_cnt, w_pid])
             csv_file.flush()
+            # ------------------------------------------------------------
             
             if current_best_fit < best_fitness_so_far:
                 best_fitness_so_far = current_best_fit
@@ -348,6 +358,19 @@ def main():
                 elite = toolbox.clone(hof[0])
                 pop = toolbox.population(n=POP_SIZE)
                 pop[0] = elite  
+                
+                # 👑 【核心防呆修復】：必須立刻把這批新生兒派給多核心去評估，否則下一代一開頭的 select 會崩潰！
+                reset_invalid_ind = [ind for ind in pop if not ind.fitness.valid]
+                print(f"🔄 正在為 {len(reset_invalid_ind)} 個重生個體進行緊急評估 (多核心加速中...)")
+                reset_results = list(executor.map(toolbox.evaluate, reset_invalid_ind))
+                
+                for ind, res in zip(reset_invalid_ind, reset_results):
+                    ind.fitness.values = (res[0],)
+                    ind.col_cnt = res[1]
+                    ind.dl_cnt = res[2]
+                    ind.worker_pid = res[3]
+                    
+                hof.update(pop) # 更新排行榜  
                 
             if no_improve_count >= PATIENCE:
                 print(f" [!] 偵測到演算法已收斂，提前停止於第 {gen+1} 代。")
