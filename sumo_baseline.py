@@ -4,7 +4,7 @@ import os
 # import csv 沒用到
 from datetime import datetime
 import sumo_utils
-
+import tripinfo_analyzer
 # --- 基礎設定 ---
 ACTION_INTERVAL = 10
 TRAFFIC_LIGHT_ID = "1253678773"
@@ -44,16 +44,17 @@ def main():
     print(f"⏰ 開始時間: {timestamp}")
     print(f"📝 日誌檔案: {log_filename}")
     print("="*55 + "\n")
-
+    tripinfo_filename = f"tripinfo_BASELINE_{timestamp}.xml"
     sumoCmd = sumo_utils.build_sumo_cmd(
         config_file=SUMO_CONFIG_FILE,
         use_gui=False,
-        tripinfo_file=f"tripinfo_BASELINE_{timestamp}.xml",
+        tripinfo_file=tripinfo_filename,
         seed=SIM_SEED,
         time_to_teleport="3600",
         quiet=False  # 原本有 --no-warnings 和 --no-step-log
     )
-    
+    total_report_collisions = 0
+    total_report_deadlocks = 0
     traci.start(sumoCmd)
     # 👑 【精確版】：抓取並印出 SUMO 地圖預設的每一個紅綠燈相位狀態
     sumo_utils.reset_global_state()  # 👈 重要！
@@ -106,10 +107,15 @@ def main():
            ## 偵測碰撞
             collisions = sumo_utils.detect_real_collisions(TRAFFIC_LIGHT_ID, active_crashes, step)
             step_collision_counter += collisions
+            total_report_collisions += collisions # 👑 新增
             # 3. 救災防死鎖與計算罰款
             sumo_utils.update_crash_vehicles(active_crashes)
-            deadlock_penalty = sumo_utils.handle_deadlock_vehicles()
-            step_deadlock_penalty_sum += deadlock_penalty
+            # 👑 完美計數寫法：直接請 utils 回傳真實處理的車輛數
+            deadlock_penalty, dl_count = sumo_utils.handle_deadlock_vehicles(90, return_count=True)
+
+            step_deadlock_penalty_sum += deadlock_penalty  # 照常累加分數 (雖然它是負數)
+            total_report_deadlocks += dl_count             # 直接加上這一步真實移除的死鎖車輛數！
+            
             # 4. 每 5 秒輸出一次偽裝成 RL 的 Log，餵給畫圖腳本！
             if step % ACTION_INTERVAL == 0:
                # 🚨 接收四維度懲罰
@@ -162,6 +168,11 @@ def main():
         print(f"   - 第 {t}s | {v1} 撞擊 {v2} | 地點: {lane}")
     print("="*55)
     print(f"📄 基準線資料與相容 Log 已存檔: {log_filename}")
+    tripinfo_analyzer.analyze_tripinfo(
+        xml_filepath=tripinfo_filename, 
+        deadlocks=total_report_deadlocks, 
+        collisions=total_report_collisions
+    )
 
 if __name__ == "__main__":
     main()

@@ -8,7 +8,7 @@ from plyer import notification
 from datetime import datetime 
 #  👇 新增這行：匯入共用工具模組
 import sumo_utils 
-
+import tripinfo_analyzer
 GA_RESULT_PATH = "./GA_best_result.csv"
 # last_total_waiting_time = 0.0 utils replace
 # last_total_queue_length = 0.0
@@ -211,6 +211,8 @@ def run_single_episode(episode_num, agent, sumoCmd, is_train_mode, instance_id, 
     # 🏃 進入時間步進迴圈 (單局開始)
     # ==========================================
     step_deadlock_penalty_sum = 0
+    total_report_collisions = 0
+    total_report_deadlocks = 0
     while step < MAX_SIMULATION_STEPS:
         try:
             traci.simulationStep()
@@ -227,9 +229,13 @@ def run_single_episode(episode_num, agent, sumoCmd, is_train_mode, instance_id, 
             # 偵測碰撞
             collisions = sumo_utils.detect_real_collisions(TRAFFIC_LIGHT_ID, active_crashes, step)
             step_collision_counter += collisions
+            total_report_collisions += collisions # 👑 新增
             sumo_utils.update_crash_vehicles(active_crashes)
-            deadlock_penalty = sumo_utils.handle_deadlock_vehicles(deadlock_threshold=90)
-            step_deadlock_penalty_sum += deadlock_penalty
+            # 👑 完美計數寫法：直接請 utils 回傳真實處理的車輛數
+            deadlock_penalty, dl_count = sumo_utils.handle_deadlock_vehicles(90, return_count=True)
+            step_deadlock_penalty_sum += deadlock_penalty  # 照常累加分數 (雖然它是負數)
+            total_report_deadlocks += dl_count             # 直接加上這一步真實移除的死鎖車輛數！
+            
             new_phase = traci.trafficlight.getPhase(TRAFFIC_LIGHT_ID)
             if new_phase != current_phase:
                 current_phase = new_phase
@@ -370,7 +376,9 @@ def run_single_episode(episode_num, agent, sumoCmd, is_train_mode, instance_id, 
         print(f"📊 模擬總步數: {step}")
         print(f"📊 本局最終累積獎勵: {cumulative_reward:.2f}")
         
-    return cumulative_reward
+    # 原本只回傳： return cumulative_reward
+    # ✅ 改成回傳三個值：
+    return cumulative_reward, total_report_collisions, total_report_deadlocks
 
 # ==============================================================================
 # 🚀 主程式 (負責準備環境與控制迴圈)
@@ -470,10 +478,12 @@ def main():
         
     # 👑 3. 準備 SUMO 指令
     sim_seed = 42 if is_train_mode else 100 
+    # ✅ 新增這行：如果是 Train，就傳 None；如果是 Test，才傳檔名
+    xml_out = None if is_train_mode else f"tripinfo_RL_{instance_id}.xml"
     sumoCmd = sumo_utils.build_sumo_cmd(
         config_file=SUMO_CONFIG_FILE,
         use_gui=(not is_train_mode), 
-        tripinfo_file=f"tripinfo_RL_{instance_id}.xml",
+        tripinfo_file=xml_out,
         seed=sim_seed,
         time_to_teleport="3600",
         quiet=False 
@@ -495,8 +505,18 @@ def main():
         
     else:
         # 測試模式只跑 1 局
-        run_single_episode(1, agent, sumoCmd, is_train_mode, instance_id, mode_label, TRAFFIC_LIGHT_ID, DYNAMIC_STATE_SIZE)
+        # ✅ 接收那三個回傳值
+        cum_reward, test_cols, test_dls = run_single_episode(1, agent, sumoCmd, is_train_mode, instance_id, mode_label, TRAFFIC_LIGHT_ID, DYNAMIC_STATE_SIZE)
         
+        tripinfo_filename = f"tripinfo_RL_{instance_id}.xml"
+        print("\n正在自動生成 RL 測試效能報告...")
+        
+        # ✅ 把真實的數據傳給腳本
+        tripinfo_analyzer.analyze_tripinfo(
+            xml_filepath=tripinfo_filename, 
+            deadlocks=test_dls,    # 替換掉原本寫死的 0
+            collisions=test_cols   # 替換掉原本寫死的 0
+        )
     # 👑 5. 全部結束後，發送電腦通知
     try:
         notify_title = "Python RL Trainning Finish" if is_train_mode else "Python RL TEST Finish"
@@ -506,6 +526,7 @@ def main():
             timeout=10 
         )
     except: pass
+
 
 if __name__ == "__main__":
     main()

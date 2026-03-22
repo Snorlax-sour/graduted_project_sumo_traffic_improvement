@@ -113,52 +113,42 @@ def evaluate(individual):
         step = 0
         # --- 【新增：動態懲罰追蹤器初始化】 ---
         junction_retention_dict = {}       # 紀錄車輛在路口內的存留時間 {vid: seconds}
-        total_jvr_penalty = 0.0            # 總滯留懲罰分
-        total_phase_transition_penalty = 0.0 # 總變燈殘留懲罰分
-        total_downstream_penalty = 0.0     # 總下游壅塞懲罰分
+        total_jvr_seconds = 0.0            # 改為記錄總滯留秒數
+        total_phase_transition_leftovers = 0 # 變燈殘留車輛數
+        total_downstream_jam_seconds = 0.0 # 改為記錄下游壅塞秒數
 
         last_phase = conn.trafficlight.getPhase(TRAFFIC_LIGHT_ID)
         # ------------------------------------
         while step < MAX_SIM_STEPS and conn.simulation.getMinExpectedNumber() > 0:
             conn.simulationStep()
             step += 1
-            # ==========================================
-            # 👑 【新增：即時物理量與空間佔用監控】
-            # ==========================================
-
-            # 1. 路口內部車輛存留時間 (Junction Vehicle Retention, JVR)
+            
+            # 1. JVR 滯留計時
             active_vids = conn.vehicle.getIDList()
-            # 先清理幽靈車輛 (已經離開路口，或是被系統強制移除/瞬移的車)
             for vid in list(junction_retention_dict.keys()):
                 if vid not in active_vids or not conn.vehicle.getRoadID(vid).startswith(':'):
                     del junction_retention_dict[vid]
 
-            # 再針對目前還在場上的車輛進行統計
             for vid in active_vids:
                 if conn.vehicle.getRoadID(vid).startswith(':'):
                     junction_retention_dict[vid] = junction_retention_dict.get(vid, 0) + 1
                     if junction_retention_dict[vid] > 5:
-                        total_jvr_penalty += (junction_retention_dict[vid] - 5) ** 1.5
+                        total_jvr_seconds += 1.0 # 只計秒數，不次方累加
 
-            # 2. 相位過渡壓力值 (Phase Transition Pressure)
+            # 2. 相位過渡
             current_phase = conn.trafficlight.getPhase(TRAFFIC_LIGHT_ID)
             if current_phase != last_phase:
-                # 變燈瞬間，計算卡在路口中間的車輛數
                 in_junction_count = sum(1 for v in junction_retention_dict.keys())
-                # 殘留一台車罰 1000 分，嚴格禁止「把車卡在路中央迎接紅燈」
-                total_phase_transition_penalty += in_junction_count * 1000.0 
+                total_phase_transition_leftovers += in_junction_count
                 last_phase = current_phase
 
-            # 3. 下游空間預留係數 (Downstream Buffer Factor)
-            # 呼叫你 sumo_utils 裡寫好的函數，佔用率 > 85% 就持續扣分
+            # 3. 下游壅塞
             if sumo_utils.check_downstream_jam(TRAFFIC_LIGHT_ID, jam_threshold=0.85, conn=conn):
-                # 只要下游滿了，每秒罰 500 分，迫使 GA 寧願讓車在上游等，也不要把車塞進下游
-                total_downstream_penalty += 500.0 
+                total_downstream_jam_seconds += 1.0 # 只計秒數
 
-            # ==========================================
+            # 碰撞與死鎖 (維持原樣)
             new_collisions = sumo_utils.detect_real_collisions(TRAFFIC_LIGHT_ID, active_crashes, step, conn=conn)
             total_collision_count += new_collisions
-            
             sumo_utils.update_crash_vehicles(active_crashes, conn=conn)
             
             dl_penalty, dl_count = sumo_utils.handle_deadlock_vehicles(deadlock_threshold=90, conn=conn, return_count=True)
@@ -169,35 +159,30 @@ def evaluate(individual):
                 print(f"[PID {pid}] 正在執行模擬... 第 {step}/{MAX_SIM_STEPS} 步 (剩餘車輛: {conn.simulation.getMinExpectedNumber()})")
 
         conn.close()
-        
         delay = sumo_utils.calculate_delay(tripinfo_filename=unique_tripinfo)
         
         # ========================================================
-        # ⚖️ 【完全對齊 RL 物理法則】
+        # ⚖️ 【修改：結算制懲罰 (讓總分回到萬級別)】
         # ========================================================
-        # 👑 請確認 sumo_utils 裡的 COLLISION_PENALTY 是 5000 或您設定的數值
-        # 這裡為了保險，我們直接手動定義車禍分數 5000 
-        # 權重可視情況微調 (分析師建議初始值)
+        # 真正的 Delay 約在 5000~20000 之間。我們讓懲罰稍微痛一點，但不要上百萬。
         w_delay = 1.0
-        w_deadlock = 1.0
-        w_collision = 1.0
-        w_jvr = 2.0         # 滯留路口極其危險，加重 2 倍
-        w_transition = 1.0
-        w_downstream = 1.0
+        w_deadlock = 50000.0  # 死鎖一次罰 5萬 (非常痛)
+        w_collision = 10000.0 # 車禍一次罰 1萬
+        w_jvr = 50.0          # 每滯留 1 秒罰 50
+        w_transition = 1000.0 # 每次變燈殘留 1 台車罰 1000
+        w_downstream = 50.0   # 下游塞車每秒罰 50
 
         final_penalty_score = (
             (delay * w_delay) + 
-            (abs(total_deadlock_penalty) * w_deadlock) + 
-            (total_collision_count * sumo_utils.COLLISION_PENALTY * w_collision) +
-            (total_jvr_penalty * w_jvr) + 
-            (total_phase_transition_penalty * w_transition) + 
-            (total_downstream_penalty * w_downstream)
+            (total_deadlock_count * w_deadlock) + # 改用 count 算，比較乾淨
+            (total_collision_count * w_collision) +
+            (total_jvr_seconds * w_jvr) + 
+            (total_phase_transition_leftovers * w_transition) + 
+            (total_downstream_jam_seconds * w_downstream)
         )
 
-        # 可選：印出各項懲罰以便 Debug，確保權重沒有失衡
-        print(f"[PID {pid}] Delay: {delay:.1f} | Collisions: {total_collision_count} | JVR: {total_jvr_penalty:.1f} | Trans: {total_phase_transition_penalty:.1f} | Downstream: {total_downstream_penalty:.1f}")
-
-        return (final_penalty_score, total_collision_count, total_deadlock_count, pid)   
+        print(f"[PID {pid}] Delay: {delay:.1f} | Col: {total_collision_count} | DL: {total_deadlock_count} | Score: {final_penalty_score:.1f}")
+        return (final_penalty_score, total_collision_count, total_deadlock_count, pid) 
             
     except Exception as e:
         print(f"Error in PID {pid}: {e}")
@@ -210,7 +195,7 @@ def evaluate(individual):
             except: pass
 
 # --- GA 參數設定與初始化 ---
-POP_SIZE = 100 
+POP_SIZE = 30 
 GEN_NUM = 50
 TIME_MIN = 10
 TIME_MAX = 100
@@ -226,7 +211,7 @@ toolbox.register("individual", tools.initRepeat, creator.Individual, toolbox.att
 toolbox.register("population", tools.initRepeat, list, toolbox.individual)
 toolbox.register("evaluate", evaluate) 
 toolbox.register("mate", tools.cxTwoPoint)
-toolbox.register("mutate", tools.mutUniformInt, low=TIME_MIN, up=TIME_MAX, indpb=0.5)
+toolbox.register("mutate", tools.mutUniformInt, low=TIME_MIN, up=TIME_MAX, indpb=0.2)# 將突變率從 0.5 改為 0.2 (0.5 太高了，會破壞菁英基因)
 toolbox.register("select", tools.selTournament, tournsize=2)
 
 
@@ -257,12 +242,15 @@ def main():
     # 👑 【進階】新增 individual_idx (個體編號) 與 worker_pid (代跑核心)
     csv_writer.writerow(["generation", "individual_idx", "phase1", "phase2", "total_score", "collisions", "deadlocks", "worker_pid"])
     pop = toolbox.population(n=POP_SIZE)
+    # 👑 【新增：國王帶兵 (Warm Start)】
+    # 把你之前最好的基因塞進第一代，避免沉沒成本浪費
+    pop[0] = creator.Individual([92, 20])
     first_values = 0
     hof = tools.HallOfFame(1) 
 
     print(f"\n🔁 開始進行 GA 訓練...\n")
-
-    with concurrent.futures.ProcessPoolExecutor() as executor:
+    safe_workers = max(1, os.cpu_count() - 2)
+    with concurrent.futures.ProcessPoolExecutor(max_workers=safe_workers) as executor:
         print(f"\n🔁 開始評估初始群體 (第 0 代)，共 {POP_SIZE} 個體 (多核心加速中...)\n")
         
         # 👑 【核心修正】：攔截初始群體的多重輸出

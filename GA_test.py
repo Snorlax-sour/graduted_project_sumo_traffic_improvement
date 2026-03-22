@@ -5,7 +5,7 @@ import os
 import csv
 from datetime import datetime
 import sumo_utils
-
+import tripinfo_analyzer # 👑 新增這行：匯入你的自動分析腳本
 # --- 基礎設定 ---
 ACTION_INTERVAL = 10
 TRAFFIC_LIGHT_ID = "1253678773"
@@ -68,11 +68,12 @@ def main():
     print("="*55 + "\n")
 
     ga_phases = read_ga_optimal_phases(GA_RESULT_PATH)
-
+    # 👑 新增：存下 XML 檔名，等一下要傳給腳本
+    tripinfo_filename = f"tripinfo_GATEST_{timestamp}.xml"
     sumoCmd = sumo_utils.build_sumo_cmd(
         config_file=SUMO_CONFIG_FILE,
         use_gui=False,
-        tripinfo_file=f"tripinfo_GATEST_{timestamp}.xml",
+        tripinfo_file=tripinfo_filename,
         seed=SIM_SEED,
         time_to_teleport="300",  # 保持你原本 GA_test 的特殊設定
         quiet=False
@@ -135,6 +136,8 @@ def main():
     controlled_lanes = set(traci.trafficlight.getControlledLanes(TRAFFIC_LIGHT_ID))
     step_collision_counter = 0 # 用於每 10 秒結算一次
     step_deadlock_penalty_sum = 0
+    total_report_collisions = 0
+    total_report_deadlocks = 0
     while step < MAX_SIMULATION_STEPS:
         try:
             traci.simulationStep()
@@ -158,12 +161,16 @@ def main():
             # 偵測碰撞
             collisions = sumo_utils.detect_real_collisions(TRAFFIC_LIGHT_ID, active_crashes, step)
             step_collision_counter += collisions
+            total_report_collisions += collisions # 👑 新增：累積整場的車禍總數
             sumo_utils.update_crash_vehicles(active_crashes)
 
             # 救災防死鎖與計算罰款
-            deadlock_penalty = sumo_utils.handle_deadlock_vehicles(90)
-            step_deadlock_penalty_sum += deadlock_penalty
             
+            # 👑 完美計數寫法：直接請 utils 回傳真實處理的車輛數
+            deadlock_penalty, dl_count = sumo_utils.handle_deadlock_vehicles(90, return_count=True)
+
+            step_deadlock_penalty_sum += deadlock_penalty  # 照常累加分數 (雖然它是負數)
+            total_report_deadlocks += dl_count             # 直接加上這一步真實移除的死鎖車輛數！
             
             # 偽裝成 RL 輸出給畫圖腳本
             if step % ACTION_INTERVAL == 0:
@@ -218,6 +225,13 @@ def main():
         print(f"   - 第 {t}s | {v1} 撞擊 {v2} | 地點: {lane}")
     print("="*55)
     print(f"📄 測試資料與相容 Log 已存檔: {log_filename}")
+    # 👑 【核心】：在這裡自動呼叫分析腳本！完全不用手動打指令！
+    print("\n正在自動生成 Tripinfo 效能報告...")
+    tripinfo_analyzer.analyze_tripinfo(
+        xml_filepath=tripinfo_filename, 
+        deadlocks=total_report_deadlocks, 
+        collisions=total_report_collisions
+    )
 
 if __name__ == "__main__":
     main()
