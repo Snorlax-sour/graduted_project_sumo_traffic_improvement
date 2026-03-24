@@ -37,7 +37,7 @@ def get_total_queue_length(tls_id):
 
 def calculate_reward(tls_id, collision_count=0, time_in_current_phase=0):
     """
-    計算當前時間步的獎勵 (已升級：回傳獨立的四維度懲罰項)
+    計算當前時間步的獎勵 (已升級：回傳獨立的四維度懲罰項，並引入 Reward Scaling)
     """
     global last_total_waiting_time
     
@@ -45,7 +45,7 @@ def calculate_reward(tls_id, collision_count=0, time_in_current_phase=0):
         lanes = traci.trafficlight.getControlledLanes(tls_id)
         unique_lanes = list(set(lanes))
         
-        # 1. 基礎指標：等待時間與排隊
+        # 1. 基礎數據：等待時間與排隊
         current_total_waiting_time = sum([
             traci.vehicle.getWaitingTime(veh_id)
             for lane in unique_lanes
@@ -53,22 +53,7 @@ def calculate_reward(tls_id, collision_count=0, time_in_current_phase=0):
         ])
         current_total_queue_length = get_total_queue_length(tls_id)
         
-        # 1. 基礎指標：等待時間與排隊
-        # 取消平方，改用線性懲罰，避免數值暴衝
-        penalty_waiting = current_total_waiting_time * 0.05
-        penalty_queue = current_total_queue_length * 2.0  
-        delta_delay = current_total_waiting_time - last_total_waiting_time
-        penalty_delta = max(0, delta_delay) * 2.0
-        
-        # 👑 將所有懲罰除以 100.0 (Reward Scaling)，拯救神經網路！
-        p_wait = (penalty_waiting + penalty_queue + penalty_delta) / 100.0
-        p_junc = (blocked_veh_count * 500.0) / 100.0
-        # 下游罰原本 1000，現在變成 10
-        p_down = 10.0 if check_downstream_jam(tls_id, jam_threshold=0.85) else 0.0
-        # 車禍罰原本 5000，現在變成 50
-        p_col = (collision_count * COLLISION_PENALTY) / 100.0
-        
-        # 2. 路口內部堵塞懲罰
+        # 2. 基礎數據：路口內部堵塞車輛數
         internal_lane_ids = set()
         for signal_group in traci.trafficlight.getControlledLinks(tls_id):
             for conn in signal_group:
@@ -76,20 +61,35 @@ def calculate_reward(tls_id, collision_count=0, time_in_current_phase=0):
                     internal_lane_ids.add(conn[2])
                     
         blocked_veh_count = sum([traci.lane.getLastStepHaltingNumber(l) for l in internal_lane_ids])
-        p_junc = blocked_veh_count * 500.0 
+
+        # ==========================================
+        # 👑 開始計算懲罰分數 (已加入 Reward Scaling)
+        # ==========================================
         
-        # 3. 下游壅塞懲罰
-        p_down = 1000.0 if check_downstream_jam(tls_id, jam_threshold=0.85) else 0.0
+        # (1) 延遲與排隊罰 (改為線性，並除以 100)
+        penalty_waiting = current_total_waiting_time * 0.05
+        penalty_queue = current_total_queue_length * 2.0  
+        delta_delay = current_total_waiting_time - last_total_waiting_time
+        penalty_delta = max(0, delta_delay) * 2.0
+        p_wait = (penalty_waiting + penalty_queue + penalty_delta) / 100.0
+        
+        # (2) 路口堵塞罰 (除以 100)
+        p_junc = (blocked_veh_count * 500.0) / 100.0
+        
+        # (3) 下游壅塞罰 (原本 1000，縮小成 10.0)
+        p_down = 10.0 if check_downstream_jam(tls_id, jam_threshold=0.85) else 0.0
             
-        # 4. 車禍懲罰
-        p_col = collision_count * COLLISION_PENALTY
+        # (4) 車禍罰 (除以 100)
+        p_col = (collision_count * COLLISION_PENALTY) / 100.0
         
-        # 總獎勵結算
+        # ==========================================
+        # 總結算
+        # ==========================================
         reward = -(p_wait + p_junc + p_down + p_col)
         
         last_total_waiting_time = current_total_waiting_time
         
-        # 👑 將四個獨立的懲罰項打包回傳
+        # 打包回傳
         return reward, current_total_queue_length, (p_wait, p_junc, p_down, p_col)
         
     except Exception as e:
