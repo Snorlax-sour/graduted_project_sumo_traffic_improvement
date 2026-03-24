@@ -153,20 +153,25 @@ def check_downstream_jam(tls_id, jam_threshold=0.85, conn=None, debugging = Fals
         # if(debugging):
         #     print(f"actual_downstream_lanes {actual_downstream_lanes}")
 
-        
+        occupancy = connection.lane.getLastStepOccupancy(lane)
         # 檢查下游車道的佔用率
         for lane in actual_downstream_lanes:
             # 排除 SUMO 內部的虛擬車道 (以 ':' 開頭的絕對不要管)
             if lane.startswith(':'):
                 continue
-            if connection.lane.getLastStepOccupancy(lane) > jam_threshold:
-                if(debugging):
-                    # 👑 加上這行 Log！我們來抓到底是哪條車道在搞鬼
-                    print(f"🔥 [抓到了] 視覺上沒塞，但程式判定塞車！")
-                    print(f"   -> 兇手車道 ID: {lane}")
-                    print(f"   -> 該車道佔用率: {connection.lane.getLastStepOccupancy(lane):.2f}")
-                    print(f"   -> 該車道長度: {connection.lane.getLength(lane):.1f} 公尺")
-                return True
+            if occupancy > jam_threshold:
+                # 取得這條車道目前的平均車速
+                mean_speed = connection.lane.getLastStepMeanSpeed(lane)
+                
+                # 如果車速小於 2.0 m/s (約時速 7 公里)，這才是真正的死胡同塞車！
+                if mean_speed < 2.0:
+                    if(debugging):
+                        print(f"🚨 [真正下游壅塞] 兇手車道: {lane}")
+                        print(f"   -> 佔用率: {occupancy:.2f} | 平均車速: {mean_speed:.2f} m/s")
+                    return True
+                else:
+                    if(debugging):
+                        print(f"✅ [虛驚一場] 車道 {lane} 佔用率雖高({occupancy:.2f})，但車流有在動(車速 {mean_speed:.2f} m/s)！")
             
                 
         return False
