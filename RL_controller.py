@@ -188,7 +188,8 @@ def run_single_episode(episode_num, agent, sumoCmd, is_train_mode, instance_id, 
     time_in_current_phase = 0    
     target_phase_duration = 0    
     last_state = None            
-    
+   
+    reward = 0
     control_mode = "RL"               
     
     ga_override_cycles_left = 0       
@@ -495,7 +496,7 @@ def main():
     # 👑 4. 執行迴圈：精神時光屋啟動！
     # ==========================================
     if is_train_mode:
-        TOTAL_EPISODES = 30  # 🎯 這裡可以自由調整你想連續訓練幾局
+        TOTAL_EPISODES = 150  # 🎯 這裡可以自由調整你想連續訓練幾局
         print(f"🔥 [啟動精神時光屋] 準備連續訓練 {TOTAL_EPISODES} 局！")
         
         for episode in range(1, TOTAL_EPISODES + 1):

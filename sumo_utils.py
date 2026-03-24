@@ -53,13 +53,20 @@ def calculate_reward(tls_id, collision_count=0, time_in_current_phase=0):
         ])
         current_total_queue_length = get_total_queue_length(tls_id)
         
-        penalty_waiting = current_total_waiting_time * 0.1
-        penalty_queue = 0.5 * (current_total_queue_length ** 2)
+        # 1. 基礎指標：等待時間與排隊
+        # 取消平方，改用線性懲罰，避免數值暴衝
+        penalty_waiting = current_total_waiting_time * 0.05
+        penalty_queue = current_total_queue_length * 2.0  
         delta_delay = current_total_waiting_time - last_total_waiting_time
         penalty_delta = max(0, delta_delay) * 2.0
         
-        # 👑 計算四項獨立懲罰
-        p_wait = penalty_waiting + penalty_queue + penalty_delta
+        # 👑 將所有懲罰除以 100.0 (Reward Scaling)，拯救神經網路！
+        p_wait = (penalty_waiting + penalty_queue + penalty_delta) / 100.0
+        p_junc = (blocked_veh_count * 500.0) / 100.0
+        # 下游罰原本 1000，現在變成 10
+        p_down = 10.0 if check_downstream_jam(tls_id, jam_threshold=0.85) else 0.0
+        # 車禍罰原本 5000，現在變成 50
+        p_col = (collision_count * COLLISION_PENALTY) / 100.0
         
         # 2. 路口內部堵塞懲罰
         internal_lane_ids = set()
@@ -111,7 +118,7 @@ def calculate_delay(tripinfo_filename):
         return 999999.0  # 給予極大懲罰淘汰這個壞基因
 
 
-def check_downstream_jam(tls_id, jam_threshold=0.85, conn=None):
+def check_downstream_jam(tls_id, jam_threshold=0.85, conn=None, debugging = False):
     """
     檢查下游車道是否壅塞
     
@@ -132,17 +139,35 @@ def check_downstream_jam(tls_id, jam_threshold=0.85, conn=None):
         # 取得下游車道（路口離開端）
         links = connection.trafficlight.getControlledLinks(tls_id)
         actual_downstream_lanes = set()
-        
+        # if(debugging):
+        #     print(f"links {links}")
         for signal_group in links:
             for conn_link in signal_group:
                 down_lane = conn_link[1]  # 連接的目標車道
                 if down_lane not in upstream_lanes:  # 排除上游車道
                     actual_downstream_lanes.add(down_lane)
+        #         if(debugging):
+        #             print(f"conn_link {conn_link})")
+        #     if(debugging):
+        #         print(f"signal_group {signal_group}")
+        # if(debugging):
+        #     print(f"actual_downstream_lanes {actual_downstream_lanes}")
+
         
         # 檢查下游車道的佔用率
         for lane in actual_downstream_lanes:
+            # 排除 SUMO 內部的虛擬車道 (以 ':' 開頭的絕對不要管)
+            if lane.startswith(':'):
+                continue
             if connection.lane.getLastStepOccupancy(lane) > jam_threshold:
+                if(debugging):
+                    # 👑 加上這行 Log！我們來抓到底是哪條車道在搞鬼
+                    print(f"🔥 [抓到了] 視覺上沒塞，但程式判定塞車！")
+                    print(f"   -> 兇手車道 ID: {lane}")
+                    print(f"   -> 該車道佔用率: {connection.lane.getLastStepOccupancy(lane):.2f}")
+                    print(f"   -> 該車道長度: {connection.lane.getLength(lane):.1f} 公尺")
                 return True
+            
                 
         return False
         

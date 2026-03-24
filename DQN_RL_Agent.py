@@ -25,7 +25,7 @@ class DQNAgent:
         self.discount_factor = 0.95
         self.exploration_rate = 1.0
         self.min_exploration = 0.01
-        self.exploration_decay = 0.9999
+        self.exploration_decay = 0.99995
         self.learning_rate = 0.001
         self.update_target_freq = 10 # 讓目標網路更新的頻率稍微降低
         self.train_counter = 0
