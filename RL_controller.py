@@ -480,7 +480,7 @@ def main():
     # 👑 3. 準備 SUMO 指令
     sim_seed = 42 if is_train_mode else 100 
     # ✅ 新增這行：如果是 Train，就傳 None；如果是 Test，才傳檔名
-    xml_out = None if is_train_mode else f"tripinfo_RL_{instance_id}.xml"
+    xml_out = f"tripinfo_RL_{instance_id}.xml"
     sumoCmd = sumo_utils.build_sumo_cmd(
         config_file=SUMO_CONFIG_FILE,
         use_gui=(not is_train_mode), 
@@ -503,6 +503,11 @@ def main():
             run_single_episode(episode, agent, sumoCmd, is_train_mode, instance_id, mode_label, TRAFFIC_LIGHT_ID, DYNAMIC_STATE_SIZE)
             
         print(f"\n🎉 精神時光屋 {TOTAL_EPISODES} 局訓練全數完成！")
+        tripinfo_analyzer.analyze_tripinfo(
+            xml_filepath=xml_out, 
+            deadlocks=test_dls,    # 替換掉原本寫死的 0
+            collisions=test_cols   # 替換掉原本寫死的 0
+        )
         
     else:
         # 測試模式只跑 1 局

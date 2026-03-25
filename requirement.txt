@@ -10,6 +10,8 @@ numpy
 # Desktop Notification
 plyer
 dbus-python # linux desktop for plyer
+# pandas convergence用
+pandas
 # YOLOv8 [yolov8](https://learnopencv.com/train-yolov8-on-custom-dataset/)
 ultralytics
 clearml

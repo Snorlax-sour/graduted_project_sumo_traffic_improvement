@@ -269,7 +269,7 @@ def main():
             csv_writer.writerow([0, idx, ind[0], ind[1], f"{ind.fitness.values[0]:.2f}", ind.col_cnt, ind.dl_cnt, ind.worker_pid])
         csv_file.flush()
         print(f"✅ Gen 0 初始群體評估完成！\n")
-        PATIENCE = 10  
+        PATIENCE = 15  
         no_improve_count = 0
         best_fitness_so_far = float('inf')
         
