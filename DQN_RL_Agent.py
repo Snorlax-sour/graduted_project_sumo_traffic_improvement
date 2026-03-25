@@ -22,7 +22,7 @@ class DQNAgent:
         self.memory = deque(maxlen=20000)
 
         # 超參數 - 命名已統一
-        self.discount_factor = 0.95
+        self.discount_factor = 0.99 # 0.95 代表它大約只考慮未來 20 步的事情。
         self.exploration_rate = 1.0
         self.min_exploration = 0.01
         self.exploration_decay = 0.99995
@@ -171,10 +171,10 @@ class DQNAgent:
         
         if self.exploration_rate > self.min_exploration:
             self.exploration_rate *= self.exploration_decay
-    def learn(self, state, action, reward, next_state):
-        self.remember(state, action, reward, next_state, False)
+    def learn(self, state, action, reward, next_state, done = False):
+        self.remember(state, action, reward, next_state, done)
         # 在記憶庫足夠大時才開始學習
-        if len(self.memory) > 64: 
+        if len(self.memory) >= 64:  # > 64 代表需要至少 65 筆才開始，< 64 代表 64 筆就可以跑。雖然差一筆影響不大，但語意上不一致，建議統一：
             self.replay(batch_size=64)
 
     def save_model(self):
@@ -221,7 +221,7 @@ class DQNAgent:
             # 【修復】：載入後，強制重新接上梯度計算圖！
             self.model.compile(loss='mse', optimizer=Adam(learning_rate=self.learning_rate))
             self.target_model.compile(loss='mse', optimizer=Adam(learning_rate=self.learning_rate))
-            self.update_target_model() # 載入後同步權重
+            # self.update_target_model() # 載入後同步權重 # ← 把 target_model 的權重覆蓋成 model 的！
             
             # ==========================================
             # 👑 關鍵新增：從 JSON 記憶檔讀取 Epsilon

@@ -167,7 +167,9 @@ def run_single_episode(episode_num, agent, sumoCmd, is_train_mode, instance_id, 
     print(f"\n" + "-"*55)
     print(f"🏁 正在啟動第 {episode_num} 局模擬 (Episode {episode_num}) ...")
     print("-"*55)
-    
+    # 初始化時加：
+    last_action = 0
+
     # 1. 啟動 SUMO 模擬器
     traci.start(sumoCmd)
     
@@ -195,7 +197,7 @@ def run_single_episode(episode_num, agent, sumoCmd, is_train_mode, instance_id, 
     ga_override_cycles_left = 0       
     last_phase = -1                   
     empty_step_counter = 0
-
+    
     # 取得路口資訊並確認模型是否已建立
     logics = traci.trafficlight.getAllProgramLogics(TRAFFIC_LIGHT_ID)
     num_phases = len(logics[0].phases) if logics else 4
@@ -215,6 +217,9 @@ def run_single_episode(episode_num, agent, sumoCmd, is_train_mode, instance_id, 
     total_report_collisions = 0
     total_report_deadlocks = 0
     while step < MAX_SIMULATION_STEPS:
+        # 👑 關鍵修正：每一回合開始前，先將切換罰歸零
+        # 否則這 10 秒如果不切換，會誤扣到上一回合的殘留值
+        switch_penalty_value = 0.0
         try:
             traci.simulationStep()
             step += 1
@@ -276,7 +281,8 @@ def run_single_episode(episode_num, agent, sumoCmd, is_train_mode, instance_id, 
                             # 🚨 接收四維度懲罰
                             reward, _, p_details = sumo_utils.calculate_reward(TRAFFIC_LIGHT_ID, step_collision_counter, time_in_current_phase)
                             p_wait, p_junc, p_down, p_col = p_details
-                            
+                            # 只有在這一步真的有切換，switch_penalty_value 才會是大於 0 的值
+                            reward -= switch_penalty_value
                             step_collision_counter = 0 
                             
                             cumulative_reward += reward
@@ -296,22 +302,57 @@ def run_single_episode(episode_num, agent, sumoCmd, is_train_mode, instance_id, 
                                 control_mode = "RL"
                             
                             # 👑 全新四維度 Log 輸出 (移除了無意義的掉分)
-                            print(f"{mode_label} 🤖 [RL] 時間: {step}s | 綠燈: {time_in_current_phase}s | 10秒獎勵: {reward:.2f} | 延遲罰: {p_wait:.2f} | 路口罰: {p_junc:.2f} | 下游罰: {p_down:.2f} | 車禍罰: {p_col:.2f} | Epsilon: {agent.exploration_rate:.3f} | 狀態: '{phase_state}'", flush=True)
+                            print(f"{mode_label} 🤖 [RL] 時間: {step}s | 綠燈: {time_in_current_phase}s | 10秒獎勵: {reward:.2f} | 延遲罰: {p_wait:.2f} | 切換罰: {switch_penalty_value:.2f} | 路口罰: {p_junc:.2f} | 下游罰: {p_down:.2f} | 車禍罰: {p_col:.2f} | Epsilon: {agent.exploration_rate:.3f} | 狀態: '{phase_state}'", flush=True)
                             if is_train_mode:
-                                agent.learn(last_state, 0, reward, current_state) 
-
+                                agent.learn(last_state, last_action, reward, current_state) 
+                
                         if control_mode == "RL":
                             if time_in_current_phase < MIN_GREEN_TIME:
                                 action = 0 
                             else:
                                 action = agent.choose_action(current_state)
+                                last_action = action  # ← 記錄起來
 
                             last_state = current_state
 
                             if action == 1:
                                 print(f"⚡ [RL] 決定切換紅綠燈！進入黃燈過渡期。", flush=True)
-                                if is_train_mode:
-                                    agent.learn(current_state, 1, 0, current_state) 
+                                try:
+                                    # 1. 取得當前路口正在「停等」的總車輛數
+                                    lanes = traci.trafficlight.getControlledLanes(tls_id)
+                                    halting_cars = sum([traci.lane.getLastStepHaltingNumber(lane) for lane in set(lanes)])
+                                    
+                                    # ==========================================
+                                    # 👑 2. 呼叫 TraCI 動態讀取真實的「黃燈/全紅」時間
+                                    # ==========================================
+                                    # 💡 關鍵修正：直接向 SUMO 詢問現在是第幾個相位
+                                    now_phase = traci.trafficlight.getPhase(tls_id)
+                                    
+                                    # 取得該路口的完整燈號定義結構
+                                    logic = traci.trafficlight.getCompleteRedYellowGreenDefinition(tls_id)[0]
+                                    
+                                    # 計算下一個相位（過渡相位）的索引
+                                    transition_phase_index = (now_phase + 1) % len(logic.phases)
+                                    
+                                    # 取得該過渡相位的真實持續秒數 (Duration)
+                                    transition_time = logic.phases[transition_phase_index].duration
+                                    
+                                    # 3. 根據物理代價計算動態懲罰 (延遲秒數 * 縮放比例)
+                                    # 這裡的 0.05 與 100.0 是為了與你 sumo_utils.py 的獎勵幣值同步
+                                    dynamic_penalty = (halting_cars * transition_time * 0.05) / 100.0
+                                    
+                                    # 4. 設定基礎最低罰分，防止沒車時 RL 瘋狂切燈 (乒乓效應)
+                                    base_penalty = 0.5 
+                                    switch_penalty_value = max(base_penalty, dynamic_penalty)
+                                    
+                                    print(f"   -> ⚖️ 物理成本分析: {halting_cars}台車 * {transition_time}s過渡 = 扣分 {switch_penalty_value:.4f}")
+                                    
+                                except Exception as e:
+                                    print(f"   -> ⚠️ 動態成本計算失敗 ({e})，使用備用罰分 5.0")
+                                    switch_penalty_value = 5.0
+                                # 切換動作的學習交給下一個 t=20s 時統一結算
+                                # switch_penalty_value 已設好，下一輪會自動扣進 reward
+                                    
                                 traci.trafficlight.setPhase(TRAFFIC_LIGHT_ID, (current_phase + 1) % num_phases)
                                 
                 # 🧬 GA 控制模式
