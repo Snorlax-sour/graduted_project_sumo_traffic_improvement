@@ -341,7 +341,7 @@ def main():
                 
             print(f"第 {gen+1} 代，連續未進步：{no_improve_count}/{PATIENCE}")
             
-            if no_improve_count > 0 and no_improve_count % 4 == 0:  
+            if no_improve_count > 0 and no_improve_count % 5 == 0:
                 print(f"⚠️ 偵測到基因庫同質化，保留歷史最強，其餘重新隨機生成！")
                 elite = toolbox.clone(hof[0])
                 pop = toolbox.population(n=POP_SIZE)
