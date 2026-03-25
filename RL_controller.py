@@ -12,7 +12,7 @@ import tripinfo_analyzer
 GA_RESULT_PATH = "./GA_best_result.csv"
 # last_total_waiting_time = 0.0 utils replace
 # last_total_queue_length = 0.0
-last_total_cumulative_waiting_time = 0.0
+
 
 # 👑 【新增函數】：管理訓練次數的讀取與寫入
 def get_and_update_training_stats(instance_id, increment=False):
@@ -91,51 +91,8 @@ def get_state(tls_id):
     state_list = halting_counts + total_vehicles + downstream_occupancy + [current_phase, GA_min_time_suggestion]
     return tuple(state_list)
 
-def get_total_queue_length(tls_id):
-    try:
-        lanes = traci.trafficlight.getControlledLanes(tls_id)
-        unique_lanes = list(set(lanes))
-        total_queue_length = 0
-        for lane in unique_lanes:
-            total_queue_length += traci.lane.getLastStepHaltingNumber(lane)
-        return total_queue_length
-    except Exception:
-        return 0
 
-def calculate_reward_queue_fallback(tls_id):
-    try:
-        lanes = traci.trafficlight.getControlledLanes(tls_id)
-        unique_lanes = list(set(lanes))
-        current_total_queue_length = 0.0
-        for lane in unique_lanes:
-            current_total_queue_length += traci.lane.getLastStepHaltingNumber(lane)
-        
-        global last_total_waiting_time
-        delta_queue = last_total_waiting_time - current_total_queue_length
-        last_total_waiting_time = current_total_queue_length
-        reward = delta_queue * 1.0 
-        return reward, current_total_queue_length
-    except Exception:
-        return 0.0, 0.0
 
-def check_downstream_jam(tls_id, jam_threshold=0.9):
-    try:
-        upstream_lanes = set(traci.trafficlight.getControlledLanes(tls_id))
-        links = traci.trafficlight.getControlledLinks(tls_id)
-        actual_downstream_lanes = set()
-        for signal_group in links:
-            for conn in signal_group:
-                down_lane = conn[1] 
-                if down_lane not in upstream_lanes:
-                    actual_downstream_lanes.add(down_lane)
-        
-        for lane in actual_downstream_lanes:
-            if traci.lane.getLastStepOccupancy(lane) > jam_threshold:
-                return True 
-        return False
-    except Exception as e:
-        print(f"下游壅塞偵測錯誤: {e}")
-        return False
 
 def print_usage():
     print("\n" + "="*55)
@@ -275,15 +232,16 @@ def run_single_episode(episode_num, agent, sumoCmd, is_train_mode, instance_id, 
                 if control_mode == "RL":
                     if time_in_current_phase > 0 and time_in_current_phase % ACTION_INTERVAL == 0:
                         current_state = get_state(TRAFFIC_LIGHT_ID)
-                        reward += step_deadlock_penalty_sum
-                        step_deadlock_penalty_sum = 0 # 結算後歸零
+
                         if last_state is not None:
                             # 🚨 接收四維度懲罰
                             reward, _, p_details = sumo_utils.calculate_reward(TRAFFIC_LIGHT_ID, step_collision_counter, time_in_current_phase)
                             p_wait, p_junc, p_down, p_col = p_details
                             # 只有在這一步真的有切換，switch_penalty_value 才會是大於 0 的值
                             reward -= switch_penalty_value
+                            reward += step_deadlock_penalty_sum
                             step_collision_counter = 0 
+                            step_deadlock_penalty_sum = 0 # 結算後歸零
                             
                             cumulative_reward += reward
                             phase_state = traci.trafficlight.getRedYellowGreenState(TRAFFIC_LIGHT_ID)
@@ -297,6 +255,7 @@ def run_single_episode(episode_num, agent, sumoCmd, is_train_mode, instance_id, 
                                     print("🚑 GA 強制接管路口，進行疏導！", flush=True)
                                     control_mode = "GA"
                                     ga_override_cycles_left = 3
+                                    last_state = None  # 切斷記憶，防止 GA 接管前的舊 state 污染 RL
                                     continue
                             else:
                                 control_mode = "RL"
@@ -311,25 +270,24 @@ def run_single_episode(episode_num, agent, sumoCmd, is_train_mode, instance_id, 
                                 action = 0 
                             else:
                                 action = agent.choose_action(current_state)
-                                last_action = action  # ← 記錄起來
-
-                            last_state = current_state
+                            last_action = action
+                            last_state = current_state  
 
                             if action == 1:
                                 print(f"⚡ [RL] 決定切換紅綠燈！進入黃燈過渡期。", flush=True)
                                 try:
                                     # 1. 取得當前路口正在「停等」的總車輛數
-                                    lanes = traci.trafficlight.getControlledLanes(tls_id)
+                                    lanes = traci.trafficlight.getControlledLanes(TRAFFIC_LIGHT_ID)
                                     halting_cars = sum([traci.lane.getLastStepHaltingNumber(lane) for lane in set(lanes)])
                                     
                                     # ==========================================
                                     # 👑 2. 呼叫 TraCI 動態讀取真實的「黃燈/全紅」時間
                                     # ==========================================
                                     # 💡 關鍵修正：直接向 SUMO 詢問現在是第幾個相位
-                                    now_phase = traci.trafficlight.getPhase(tls_id)
+                                    now_phase = traci.trafficlight.getPhase(TRAFFIC_LIGHT_ID)
                                     
                                     # 取得該路口的完整燈號定義結構
-                                    logic = traci.trafficlight.getCompleteRedYellowGreenDefinition(tls_id)[0]
+                                    logic = traci.trafficlight.getCompleteRedYellowGreenDefinition(TRAFFIC_LIGHT_ID)[0]
                                     
                                     # 計算下一個相位（過渡相位）的索引
                                     transition_phase_index = (now_phase + 1) % len(logic.phases)
@@ -541,7 +499,8 @@ def main():
         print(f"🔥 [啟動精神時光屋] 準備連續訓練 {TOTAL_EPISODES} 局！")
         
         for episode in range(1, TOTAL_EPISODES + 1):
-            run_single_episode(episode, agent, sumoCmd, is_train_mode, instance_id, mode_label, TRAFFIC_LIGHT_ID, DYNAMIC_STATE_SIZE)
+            cum_reward, test_cols, test_dls = run_single_episode(episode, agent, sumoCmd, is_train_mode, instance_id, mode_label, TRAFFIC_LIGHT_ID, DYNAMIC_STATE_SIZE)
+
             
         print(f"\n🎉 精神時光屋 {TOTAL_EPISODES} 局訓練全數完成！")
         tripinfo_analyzer.analyze_tripinfo(

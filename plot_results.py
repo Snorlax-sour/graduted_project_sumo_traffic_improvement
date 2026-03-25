@@ -34,7 +34,8 @@ def process_episode_data(lines, log_file, ep_label=""):
     final_reward = None  
     
     # 👑 新版正規表示法：抓取獨立的四個懲罰項
-    pattern = re.compile(r"時間:\s*(\d+)s \| .*?10秒獎勵:\s*(-?\d+\.\d+) \| 延遲罰:\s*(\d+\.\d+) \| 路口罰:\s*(\d+\.\d+) \| 下游罰:\s*(\d+\.\d+) \| 車禍罰:\s*(\d+\.\d+) \| Epsilon:\s*(\d+\.\d+)")
+    # 注意：使用 .*? 跳過 RL 模式獨有的「切換罰」欄位，讓 BASELINE/GA_TEST/RL 的 Log 都能通用
+    pattern = re.compile(r"時間:\s*(\d+)s \| .*?10秒獎勵:\s*(-?\d+\.\d+) \| 延遲罰:\s*(\d+\.\d+).*?路口罰:\s*(\d+\.\d+) \| 下游罰:\s*(\d+\.\d+) \| 車禍罰:\s*(\d+\.\d+) \| Epsilon:\s*(\d+\.\d+)")
     
     collision_pattern = re.compile(r"💥 \[REAL_COLLISION\]|Collision")
     rescue_pattern = re.compile(r"\[路口死鎖救援\]|瞬移到|向前推進")

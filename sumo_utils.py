@@ -153,28 +153,36 @@ def check_downstream_jam(tls_id, jam_threshold=0.85, conn=None, debugging = Fals
         # if(debugging):
         #     print(f"actual_downstream_lanes {actual_downstream_lanes}")
 
-        occupancy = connection.lane.getLastStepOccupancy(lane)
-        # 檢查下游車道的佔用率
-        for lane in actual_downstream_lanes:
-            # 排除 SUMO 內部的虛擬車道 (以 ':' 開頭的絕對不要管)
-            if lane.startswith(':'):
-                continue
-            if occupancy > jam_threshold:
-                # 取得這條車道目前的平均車速
-                mean_speed = connection.lane.getLastStepMeanSpeed(lane)
-                
-                # 如果車速小於 2.0 m/s (約時速 7 公里)，這才是真正的死胡同塞車！
-                if mean_speed < 2.0:
-                    if(debugging):
-                        print(f"🚨 [真正下游壅塞] 兇手車道: {lane}")
-                        print(f"   -> 佔用率: {occupancy:.2f} | 平均車速: {mean_speed:.2f} m/s")
-                    return True
-                else:
-                    if(debugging):
-                        print(f"✅ [虛驚一場] 車道 {lane} 佔用率雖高({occupancy:.2f})，但車流有在動(車速 {mean_speed:.2f} m/s)！")
+        # 檢查下游車道的佔用率（全部都塞才回傳 True）
+        # 先篩出有效車道（排除以 ':' 開頭的 SUMO 內部虛擬車道）
+        valid_lanes = [lane for lane in actual_downstream_lanes if not lane.startswith(':')]
+        
+        if not valid_lanes:
+            return False
+        
+        for lane in valid_lanes:
+            occupancy = connection.lane.getLastStepOccupancy(lane)
+            if occupancy <= jam_threshold:
+                # 只要有一條沒塞，就不算全部塞
+                if debugging:
+                    print(f"✅ [未全面壅塞] 車道 {lane} 佔用率 {occupancy:.2f} 低於門檻，尚未全面塞車。")
+                return False
             
-                
-        return False
+            # 佔用率超標，再確認車速
+            mean_speed = connection.lane.getLastStepMeanSpeed(lane)
+            if mean_speed >= 2.0:
+                # 佔用率雖高但車流還在動，不算真正死塞
+                if debugging:
+                    print(f"✅ [虛驚一場] 車道 {lane} 佔用率雖高({occupancy:.2f})，但車流有在動(車速 {mean_speed:.2f} m/s)！")
+                return False
+            
+            if debugging:
+                print(f"🚨 [車道確認壅塞] 車道: {lane} | 佔用率: {occupancy:.2f} | 車速: {mean_speed:.2f} m/s")
+        
+        # 所有有效車道都通過壅塞判定
+        if debugging:
+            print(f"🚨 [全面下游壅塞] 所有 {len(valid_lanes)} 條下游車道均已壅塞！")
+        return True
         
     except Exception:
         return False
