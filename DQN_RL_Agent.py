@@ -12,7 +12,12 @@ tf.data.experimental.enable_debug_mode() # 這個可以移除，不影響模型�
  # <--- 【新增或確認】
 import json
 import os # 新增：用於檢查檔案是否存在
-
+import tensorflow as tf
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' # 減少 Log 輸出節省記憶體
+gpus = tf.config.experimental.list_physical_devices('GPU')
+if gpus:
+    for gpu in gpus:
+        tf.config.experimental.set_memory_growth(gpu, True)
 class DQNAgent:
     # --- 【修正點 1：新增 instance_id 參數】---
     def __init__(self, state_size, action_space, instance_id="default_rl"):
