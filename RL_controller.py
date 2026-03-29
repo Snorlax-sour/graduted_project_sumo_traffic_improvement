@@ -173,8 +173,8 @@ def run_single_episode(episode_num, agent, sumoCmd, is_train_mode, instance_id, 
     step_deadlock_penalty_sum = 0
     total_report_collisions = 0
     total_report_deadlocks = 0
+    switch_penalty_value = 0.0  # 迴圈外初始化，確保第一個決策點不會有未定義問題
     while step < MAX_SIMULATION_STEPS:
-        
         try:
             traci.simulationStep()
             step += 1
@@ -261,10 +261,8 @@ def run_single_episode(episode_num, agent, sumoCmd, is_train_mode, instance_id, 
                             # 👑 全新四維度 Log 輸出 (移除了無意義的掉分)
                             print(f"{mode_label} 🤖 [RL] 時間: {step}s | 綠燈: {time_in_current_phase}s | 10秒獎勵: {reward:.2f} | 延遲罰: {p_wait:.2f} | 切換罰: {switch_penalty_value:.2f} | 路口罰: {p_junc:.2f} | 下游罰: {p_down:.2f} | 車禍罰: {p_col:.2f} | Epsilon: {agent.exploration_rate:.3f} | 狀態: '{phase_state}'", flush=True)
                             if is_train_mode:
-                                agent.learn(last_state, last_action, reward, current_state) 
-                            # 👑 關鍵修正：每一回合開始前，先將切換罰歸零
-                            # 否則這 10 秒如果不切換，會誤扣到上一回合的殘留值
-                            switch_penalty_value = 0.0
+                                agent.learn(last_state, last_action, reward, current_state)
+                            switch_penalty_value = 0.0  # 切換罰已結算完畢，歸零避免下一輪重複扣
                         if control_mode == "RL":
                             if time_in_current_phase < MIN_GREEN_TIME:
                                 action = 0 
@@ -298,6 +296,7 @@ def run_single_episode(episode_num, agent, sumoCmd, is_train_mode, instance_id, 
                                     # 3. 根據物理代價計算動態懲罰 (延遲秒數 * 縮放比例)
                                     # 這裡的 0.05 與 100.0 是為了與你 sumo_utils.py 的獎勵幣值同步
                                     dynamic_penalty = (halting_cars * transition_time * 4) / 100.0
+                                    # 係數 4：每台車每秒過渡時間扣 0.04 分，與 sumo_utils 的獎勵幣值同步
                                     
                                     # 4. 設定基礎最低罰分，防止沒車時 RL 瘋狂切燈 (乒乓效應)
                                     base_penalty = 0.5 
@@ -498,15 +497,18 @@ def main():
         TOTAL_EPISODES = 150  # 🎯 這裡可以自由調整你想連續訓練幾局
         print(f"🔥 [啟動精神時光屋] 準備連續訓練 {TOTAL_EPISODES} 局！")
         
+        total_train_cols = 0
+        total_train_dls = 0
         for episode in range(1, TOTAL_EPISODES + 1):
-            cum_reward, test_cols, test_dls = run_single_episode(episode, agent, sumoCmd, is_train_mode, instance_id, mode_label, TRAFFIC_LIGHT_ID, DYNAMIC_STATE_SIZE)
+            cum_reward, ep_cols, ep_dls = run_single_episode(episode, agent, sumoCmd, is_train_mode, instance_id, mode_label, TRAFFIC_LIGHT_ID, DYNAMIC_STATE_SIZE)
+            total_train_cols += ep_cols  # 累加每局車禍數
+            total_train_dls += ep_dls   # 累加每局死鎖數
 
-            
         print(f"\n🎉 精神時光屋 {TOTAL_EPISODES} 局訓練全數完成！")
         tripinfo_analyzer.analyze_tripinfo(
-            xml_filepath=xml_out, 
-            deadlocks=test_dls,    # 替換掉原本寫死的 0
-            collisions=test_cols   # 替換掉原本寫死的 0
+            xml_filepath=xml_out,
+            deadlocks=total_train_dls,  # 所有局的累計死鎖數
+            collisions=total_train_cols # 所有局的累計車禍數
         )
         
     else:

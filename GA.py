@@ -197,8 +197,8 @@ def evaluate(individual):
 # --- GA 參數設定與初始化 ---
 POP_SIZE = 30 
 GEN_NUM = 50
-TIME_MIN = 10
-TIME_MAX = 100
+TIME_MIN = 15   # 太短的綠燈沒意義
+TIME_MAX = 150
 
 if not hasattr(creator, "FitnessMin"):
     creator.create("FitnessMin", base.Fitness, weights=(-1.0,))
@@ -218,7 +218,7 @@ toolbox.register("select", tools.selTournament, tournsize=2)
 def main():
     print(f"主程序 PID {os.getpid()}: 啟動 GA 實例 ID: {GA_INSTANCE_ID}")
     print(f"📝 本次訓練日誌將自動寫入: {LOG_FILENAME}")
-    
+    historical_best = []
     historical_best_delay = float('inf')
     FINAL_RESULT_FILENAME = "./GA_best_result.csv"
     if os.path.exists(FINAL_RESULT_FILENAME):
@@ -229,6 +229,7 @@ def main():
                 row = next(reader, None)
                 if row and len(row) >= 4:
                     historical_best_delay = float(row[3])
+                    historical_best = [row[1], row[2]]
                     print(f"💾 成功載入歷史最佳紀錄：{historical_best_delay} 分")
         except Exception as e:
             print(f"⚠️ 讀取歷史紀錄失敗: {e}")
@@ -244,7 +245,7 @@ def main():
     pop = toolbox.population(n=POP_SIZE)
     # 👑 【新增：國王帶兵 (Warm Start)】
     # 把你之前最好的基因塞進第一代，避免沉沒成本浪費
-    pop[0] = creator.Individual([92, 20])
+    pop[0] = creator.Individual(historical_best)
     first_values = 0
     hof = tools.HallOfFame(1) 
 
@@ -309,59 +310,73 @@ def main():
             print(f"第 {gen+1} 代 歷史最佳：{global_best}, 總分: {global_best.fitness.values[0]:.2f} (車禍:{global_best.col_cnt}, 死鎖:{global_best.dl_cnt})")
 
             current_best_fit = hof[0].fitness.values[0]
+
             # ------------------------------------------------------------
-            # 👑 【核心新增】：將本代 100 個個體全部寫入 CSV！
+            # 👑 【多樣性控制】：同一基因最多保留 MAX_CLONE 個，其餘補充隨機新個體
+            # 取代原本的大滅絕機制，溫和地維持基因庫多樣性
+            # ------------------------------------------------------------
+            from collections import Counter
+            MAX_CLONE = 3
+            filtered_pop = []
+            gene_seen = Counter()
+            for ind in sorted(pop, key=lambda x: x.fitness.values[0]):
+                key = tuple(ind)
+                if gene_seen[key] < MAX_CLONE:
+                    filtered_pop.append(ind)
+                    gene_seen[key] += 1
+            while len(filtered_pop) < POP_SIZE:
+                new_ind = toolbox.individual()
+                filtered_pop.append(new_ind)
+            pop[:] = filtered_pop
+
+            new_invalid = [ind for ind in pop if not ind.fitness.valid]
+            if new_invalid:
+                print(f"🌱 多樣性補充：新增 {len(new_invalid)} 個隨機個體，立即評估...")
+                new_results = list(executor.map(toolbox.evaluate, new_invalid))
+                for ind, res in zip(new_invalid, new_results):
+                    ind.fitness.values = (res[0],)
+                    ind.col_cnt = res[1]
+                    ind.dl_cnt = res[2]
+                    ind.worker_pid = res[3]
+                hof.update(pop)
+            # ------------------------------------------------------------
+
+            # ------------------------------------------------------------
+            # 👑 將本代所有個體寫入 CSV
             # ------------------------------------------------------------
             for idx, ind in enumerate(pop):
-                # 如果這個個體是菁英保留(沒有重新評估)，他可能帶有舊的 worker_pid，安全讀取
                 w_pid = getattr(ind, 'worker_pid', os.getpid())
                 csv_writer.writerow([gen + 1, idx, ind[0], ind[1], f"{ind.fitness.values[0]:.2f}", ind.col_cnt, ind.dl_cnt, w_pid])
             csv_file.flush()
             # ------------------------------------------------------------
-            
+
+            # ------------------------------------------------------------
+            # 👑 進步判斷：只有真正變差才累加 no_improve_count，平手不算
+            # ------------------------------------------------------------
             if current_best_fit < best_fitness_so_far:
                 best_fitness_so_far = current_best_fit
-                no_improve_count = 0  
-                
+                no_improve_count = 0
                 if current_best_fit < historical_best_delay:
                     print(f"🎉 突破跨世代歷史紀錄！({historical_best_delay:.2f} 降至 {current_best_fit:.2f})，更新檔案！")
-                    historical_best_delay = current_best_fit  
+                    historical_best_delay = current_best_fit
                     try:
                         with open(FINAL_RESULT_FILENAME, mode="w", newline="", encoding="utf-8") as final_f:
                             final_writer = csv.writer(final_f)
-                            # 👑 全局最佳 CSV 也同步寫入名牌資訊
                             final_writer.writerow(["generation", "phase1", "phase2", "total_score", "collisions", "deadlocks", "os_pid"])
                             final_writer.writerow([gen + 1, global_best[0], global_best[1], f"{global_best.fitness.values[0]:.2f}", global_best.col_cnt, global_best.dl_cnt, f"{os.getpid()}"])
                     except Exception as e:
                         print(f"error write best csv file: {e}")
                 else:
                     print(f"👍 本次訓練有進步 ({current_best_fit:.2f})，但尚未打破歷史紀錄 ({historical_best_delay:.2f})。")
+            elif current_best_fit == best_fitness_so_far:
+                pass  # 平手，計數器不動
             else:
-                no_improve_count += 1 
-                
+                no_improve_count += 1  # 真正變差才累加
+
             print(f"第 {gen+1} 代，連續未進步：{no_improve_count}/{PATIENCE}")
-            
-            if no_improve_count > 0 and no_improve_count % 5 == 0:
-                print(f"⚠️ 偵測到基因庫同質化，保留歷史最強，其餘重新隨機生成！")
-                elite = toolbox.clone(hof[0])
-                pop = toolbox.population(n=POP_SIZE)
-                pop[0] = elite  
-                
-                # 👑 【核心防呆修復】：必須立刻把這批新生兒派給多核心去評估，否則下一代一開頭的 select 會崩潰！
-                reset_invalid_ind = [ind for ind in pop if not ind.fitness.valid]
-                print(f"🔄 正在為 {len(reset_invalid_ind)} 個重生個體進行緊急評估 (多核心加速中...)")
-                reset_results = list(executor.map(toolbox.evaluate, reset_invalid_ind))
-                
-                for ind, res in zip(reset_invalid_ind, reset_results):
-                    ind.fitness.values = (res[0],)
-                    ind.col_cnt = res[1]
-                    ind.dl_cnt = res[2]
-                    ind.worker_pid = res[3]
-                    
-                hof.update(pop) # 更新排行榜  
-                
+
             if no_improve_count >= PATIENCE:
-                print(f" [!] 偵測到演算法已收斂，提前停止於第 {gen+1} 代。")
+                print(f"[!] 偵測到演算法已收斂，提前停止於第 {gen+1} 代。")
                 break
 
     final_global_best = hof[0]
