@@ -62,7 +62,7 @@ def evaluate(individual):
         use_gui=False,
         tripinfo_file=unique_tripinfo,
         seed=sim_seed,
-        time_to_teleport="3600",
+        time_to_teleport="300",
         quiet=True
     )
 

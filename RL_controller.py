@@ -194,7 +194,7 @@ def run_single_episode(episode_num, agent, sumoCmd, is_train_mode, instance_id, 
             sumo_utils.update_crash_vehicles(active_crashes)
             # 👑 完美計數寫法：直接請 utils 回傳真實處理的車輛數
             deadlock_penalty, dl_count = sumo_utils.handle_deadlock_vehicles(90, return_count=True)
-            step_deadlock_penalty_sum += deadlock_penalty  # 照常累加分數 (雖然它是負數)
+            step_deadlock_penalty_sum += deadlock_penalty# 照常累加分數 (雖然它是負數)
             total_report_deadlocks += dl_count             # 直接加上這一步真實移除的死鎖車輛數！
             
             new_phase = traci.trafficlight.getPhase(TRAFFIC_LIGHT_ID)
@@ -237,7 +237,7 @@ def run_single_episode(episode_num, agent, sumoCmd, is_train_mode, instance_id, 
                             p_wait, p_junc, p_down, p_col = p_details
                             # 只有在這一步真的有切換，switch_penalty_value 才會是大於 0 的值
                             reward -= switch_penalty_value
-                            reward += step_deadlock_penalty_sum
+                            reward += (step_deadlock_penalty_sum / 100.0) # ，Loss 值會飆升到 $10^8$ (一億)，這會引發嚴重的梯度爆炸
                             step_collision_counter = 0 
                             step_deadlock_penalty_sum = 0 # 結算後歸零
                             
@@ -478,13 +478,13 @@ def main():
     # 👑 3. 準備 SUMO 指令
     sim_seed = 42 if is_train_mode else 100 
     # ✅ 新增這行：如果是 Train，就傳 None；如果是 Test，才傳檔名
-    xml_out = f"tripinfo_RL_{instance_id}.xml"
+    xml_out = f"tripinfo_RL_{instance_id}_{timestamp}.xml"
     sumoCmd = sumo_utils.build_sumo_cmd(
         config_file=SUMO_CONFIG_FILE,
         use_gui=(not is_train_mode), 
         tripinfo_file=xml_out,
         seed=sim_seed,
-        time_to_teleport="3600",
+        time_to_teleport="300",
         quiet=False 
     )
     

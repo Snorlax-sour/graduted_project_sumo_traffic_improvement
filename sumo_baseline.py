@@ -50,7 +50,7 @@ def main():
         use_gui=False,
         tripinfo_file=tripinfo_filename,
         seed=SIM_SEED,
-        time_to_teleport="3600",
+        time_to_teleport="300",
         quiet=False  # 原本有 --no-warnings 和 --no-step-log
     )
     total_report_collisions = 0
