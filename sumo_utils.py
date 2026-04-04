@@ -290,56 +290,63 @@ def update_crash_vehicles(active_crashes, conn=None):
 # ==========================================
 def handle_deadlock_vehicles(deadlock_threshold=90, conn=None, return_count=False):
     """
-    處理死鎖車輛（極簡精準版）
-    👑 核心邏輯：只救援「卡在十字路口內部 (Junction)」超過 90 秒的車輛。
-    正常車道上的塞車排隊完全不管，讓 AI 自行承擔 Delay 懲罰！
+    處理死鎖車輛 (包含手動救援路口內部，以及偵測 SUMO 原廠瞬移)
     """
     connection = conn if conn is not None else traci
-    deadlock_penalty = 0
-    deadlock_count = 0  
+    total_penalty = 0.0
+    num_deadlocks = 0
     
-    for v_id in connection.vehicle.getIDList():
-        # 👑 1. 最優先判斷：這台車是否在路口內部 (SUMO 裡路口內的 edge 開頭是 ':')
-        current_edge = connection.vehicle.getRoadID(v_id)
-        if not current_edge.startswith(':'):
-            continue  # 不在路口內？那只是塞車排隊而已，直接跳過，不管等多久都不處罰！
+    try:
+        # 1. 處理「路口內部 (:)」的手動死鎖救援
+        vehicles = connection.vehicle.getIDList()
+        for vid in vehicles:
+            edge = connection.vehicle.getRoadID(vid)
             
-        # 👑 2. 如果在路口內部，且車速幾乎停止
-        if connection.vehicle.getSpeed(v_id) < 0.1:
-            # 👑 3. 且卡在路口中間超過 90 秒 (這就是真正的死鎖！)
-            if connection.vehicle.getWaitingTime(v_id) > deadlock_threshold:
-                try:
-                    route = connection.vehicle.getRoute(v_id)
-                    route_index = connection.vehicle.getRouteIndex(v_id)
-                    
-                    # 嘗試把它往前推到下一個正常的車道上
-                    if route_index + 1 < len(route):
-                        next_edge = route[route_index + 1]
-                        connection.vehicle.moveTo(v_id, f"{next_edge}_0", 10.0)
-                        print(f"pid: {os.getpid()} 🚑 [路口死鎖救援] {v_id} 於路口內卡死，瞬移到 {next_edge} 疏通", flush=True)
-                        deadlock_penalty -= 500
-                        deadlock_count += 1
-                    else:
-                        # 如果已經沒路可走，只好強制移除
-                        connection.vehicle.remove(v_id)
-                        print(f"pid: {os.getpid()} 🚑 [路口死鎖移除] {v_id} 於路口內卡死且無退路，強制移除", flush=True)
-                        deadlock_penalty -= 10000
-                        deadlock_count += 1
-                        
-                except Exception as e:
+            # 只有在「路口內部 (:)」的車輛才會被判定為手動死鎖並救援
+            if edge.startswith(':'):
+                wait_time = connection.vehicle.getWaitingTime(vid)
+                
+                if wait_time > deadlock_threshold:
                     try:
-                        connection.vehicle.remove(v_id)
-                        print(f"pid: {os.getpid()} ❌ [瞬移失敗] {v_id} 強制移除 ({e})", flush=True)
-                        deadlock_penalty -= 10000
-                        deadlock_count += 1
-                    except:
-                        pass
-    
-    # 支援雙模式回傳 (GA 需要次數，RL 只需要分數)
-    if return_count:
-        return deadlock_penalty, deadlock_count
-    return deadlock_penalty
+                        route = connection.vehicle.getRoute(vid)
+                        route_index = connection.vehicle.getRouteIndex(vid)
+                        
+                        # 嘗試將車輛移動到它的下一條邊
+                        if route_index + 1 < len(route):
+                            next_edge = route[route_index + 1]
+                            connection.vehicle.moveTo(vid, next_edge, 0)
+                            total_penalty -= 500.0 
+                            num_deadlocks += 1
+                            print(f"🚑 [路口死鎖救援] {vid} 於路口內卡死，瞬移到 {next_edge} 疏通")
+                        else:
+                            # 如果沒有下一條邊，強制刪除
+                            connection.vehicle.remove(vid)
+                            total_penalty -= 10000.0
+                            num_deadlocks += 1
+                            print(f"💀 [路口死鎖移除] {vid} 無法向前推進，強制移除！")
+                    except Exception as e:
+                        # 救援失敗的最後手段：強制移除
+                        connection.vehicle.remove(vid)
+                        total_penalty -= 10000.0
+                        num_deadlocks += 1
+                        print(f"💀 [路口死鎖移除] {vid} 瞬移失敗 ({e})，強制移除！")
 
+        # 👑 2. 【核心整合】：偵測「路口外部」的 SUMO 原廠瞬移
+        # getStartingTeleportNumber() 會抓取「這一個 Step」開始被 SUMO 強制瞬移的車輛數
+        native_teleport_count = connection.simulation.getStartingTeleportNumber()
+        if native_teleport_count > 0:
+            # 原廠瞬移代表車輛在停等線前卡死太久，視同最高等級的死鎖災難
+            # 扣除巨額分數 (10000分)，確保 RL 不敢故意讓車塞到被瞬移
+            total_penalty -= ((native_teleport_count * 10000.0) / 100)
+            num_deadlocks += native_teleport_count
+            print(f"🚨 [原廠瞬移懲罰] 物理引擎極限崩潰！SUMO 強制瞬移了 {native_teleport_count} 台路口外的死鎖車輛！")
+
+    except Exception as e:
+        print(f"⚠️ 處理死鎖車輛時發生錯誤: {e}")
+        
+    if return_count:
+        return total_penalty, num_deadlocks
+    return total_penalty
 # ==========================================
 # 🛠️ SUMO 環境設定
 # ==========================================
@@ -391,7 +398,7 @@ def force_static_traffic_light(tls_id):
 
 
 def build_sumo_cmd(config_file="osm.sumocfg", use_gui=False, tripinfo_file=None, 
-                   seed=42, time_to_teleport="3600", quiet=True):
+                   seed=42, time_to_teleport="300", quiet=True):
     """
     統一產出 SUMO 啟動指令 (sumoCmd)
     
@@ -426,7 +433,7 @@ def build_sumo_cmd(config_file="osm.sumocfg", use_gui=False, tripinfo_file=None,
     return cmd
 
 
-def check_junction_blocking(tls_id, min_blocking_cars=1, conn=None):
+def check_junction_blocking(tls_id, min_blocking_cars=10, conn=None):
     """
     檢查路口正中間（內部車道）是否有車輛卡死。
     這是觸發 GA 危機接管 (Crisis B) 的核心判定函數。

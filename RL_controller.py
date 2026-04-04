@@ -14,6 +14,31 @@ GA_RESULT_PATH = "./GA_best_result.csv"
 # last_total_queue_length = 0.0
 
 
+# 👑 【新增函數】：管理分段訓練進度的讀取與存檔
+def get_and_update_training_stats(instance_id, increment=False):
+    """
+    從 JSON 讀取目前已經訓練了幾局。
+    如果 increment=True，則將訓練局數 +1 並存檔。
+    """
+    stats_file = f"stats_{instance_id}.json"
+    data = {"training_count": 0, "last_update": ""}
+    
+    # 嘗試讀取舊進度
+    if os.path.exists(stats_file):
+        try:
+            with open(stats_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+        except Exception as e:
+            print(f"⚠️ 讀取進度檔失敗 ({e})，將從第 0 局開始。")
+    
+    # 如果跑完了一局，需要推進進度
+    if increment:
+        data["training_count"] += 1
+        data["last_update"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with open(stats_file, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=4)
+            
+    return data["training_count"]
 # 👑 【新增函數】：管理訓練次數的讀取與寫入
 def get_and_update_training_stats(instance_id, increment=False):
     stats_file = f"stats_{instance_id}.json"
@@ -494,21 +519,42 @@ def main():
     # 👑 4. 執行迴圈：精神時光屋啟動！
     # ==========================================
     if is_train_mode:
-        TOTAL_EPISODES = 150  # 🎯 這裡可以自由調整你想連續訓練幾局
-        print(f"🔥 [啟動精神時光屋] 準備連續訓練 {TOTAL_EPISODES} 局！")
+        GOAL_EPISODES = 150       # 🎯 你的最終總目標
+        EPISODES_PER_RUN = 30     # 🎯 每次啟動只跑 30 局就自動關閉，避免記憶體爆炸
         
-        total_train_cols = 0
-        total_train_dls = 0
-        for episode in range(1, TOTAL_EPISODES + 1):
-            cum_reward, ep_cols, ep_dls = run_single_episode(episode, agent, sumoCmd, is_train_mode, instance_id, mode_label, TRAFFIC_LIGHT_ID, DYNAMIC_STATE_SIZE)
-            total_train_cols += ep_cols  # 累加每局車禍數
-            total_train_dls += ep_dls   # 累加每局死鎖數
+        # 1. 詢問存檔：目前已經練了幾局？
+        current_trained_count = get_and_update_training_stats(instance_id, increment=False)
+        
+        if current_trained_count >= GOAL_EPISODES:
+            print(f"✅ 恭喜！已經達成 {GOAL_EPISODES} 局的訓練總目標，程式結束。")
+            return
 
-        print(f"\n🎉 精神時光屋 {TOTAL_EPISODES} 局訓練全數完成！")
+        # 2. 計算本輪要跑的起點與終點
+        start_ep = current_trained_count + 1
+        end_ep = min(current_trained_count + EPISODES_PER_RUN, GOAL_EPISODES)
+        
+        print(f"🔥 [啟動分段訓練] 總進度: {current_trained_count} / {GOAL_EPISODES}")
+        print(f"🚀 本次執行將從第 {start_ep} 局 跑到第 {end_ep} 局 ...")
+        
+        for episode in range(start_ep, end_ep + 1):
+            print(f"\n--- 🎬 開始執行第 {episode} 局 ---")
+            
+            # 執行單局模擬
+            cum_reward, ep_cols, ep_dls = run_single_episode(
+                episode, agent, sumoCmd, is_train_mode, 
+                instance_id, mode_label, TRAFFIC_LIGHT_ID, DYNAMIC_STATE_SIZE
+            )
+            
+            # 👑 跑完這局後，JSON 進度 + 1 並自動存檔
+            current_trained_count = get_and_update_training_stats(instance_id, increment=True)
+            print(f"💾 局數已存檔！目前總完成進度: {current_trained_count} / {GOAL_EPISODES}")
+
+        print(f"\n🛑 本輪 {EPISODES_PER_RUN} 局已跑完，程式即將自動結束以釋放記憶體。")
+        print(f"👉 請再次執行此程式，它會自動從第 {current_trained_count + 1} 局繼續往下接力！")
         tripinfo_analyzer.analyze_tripinfo(
             xml_filepath=xml_out,
-            deadlocks=total_train_dls,  # 所有局的累計死鎖數
-            collisions=total_train_cols # 所有局的累計車禍數
+            deadlocks=ep_dls,  # 所有局的累計死鎖數
+            collisions=ep_cols # 所有局的累計車禍數
         )
         
     else:

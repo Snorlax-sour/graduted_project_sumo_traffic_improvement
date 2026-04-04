@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<!-- generated on 2026-04-05T03:37:11.861288+08:00 by Eclipse SUMO sumo 1.26.0
+<!-- generated on 2026-04-05T07:36:48.894803+08:00 by Eclipse SUMO sumo 1.26.0
 <sumoConfiguration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/sumoConfiguration.xsd">
 
     <input>
@@ -20,7 +20,7 @@
         <collision.action value="warn"/>
         <collision.check-junctions value="true"/>
         <collision.mingap-factor value="0"/>
-        <time-to-teleport value="3600"/>
+        <time-to-teleport value="300"/>
         <tls.actuated.jam-threshold value="30"/>
     </processing>
 
@@ -37,7 +37,7 @@
     </report>
 
     <traci_server>
-        <remote-port value="45947"/>
+        <remote-port value="36121"/>
     </traci_server>
 
     <random_number>
