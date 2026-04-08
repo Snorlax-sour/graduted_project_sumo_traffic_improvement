@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<!-- generated on 2026-04-05T07:38:57.141451+08:00 by Eclipse SUMO sumo 1.26.0
+<!-- generated on 2026-04-07T22:40:45.296685+08:00 by Eclipse SUMO GUI 1.26.0
 <sumoConfiguration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/sumoConfiguration.xsd">
 
     <input>
@@ -10,7 +10,7 @@
     </input>
 
     <output>
-        <tripinfo-output value="tripinfo_RL_20260405_v1_20260405_0736.xml"/>
+        <tripinfo-output value="tripinfo_RL_20260407_20260407_2240.xml"/>
         <tripinfo-output.write-unfinished value="true"/>
         <statistic-output value="stats.xml"/>
     </output>
@@ -37,7 +37,7 @@
     </report>
 
     <traci_server>
-        <remote-port value="38861"/>
+        <remote-port value="36925"/>
     </traci_server>
 
     <random_number>
@@ -49,3 +49,17 @@
     </gui_only>
 
 </sumoConfiguration>
+-->
+
+<statistics xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/statistic_file.xsd">
+    <performance clockBegin="1775572845.32" clockEnd="1775573042.48" clockDuration="197.16" traciDuration="83.49" realTimeFactor="29.49" vehicleUpdatesPerSecond="3046.54" personUpdatesPerSecond="0.00" begin="0.00" end="5815.00" duration="5815.00"/>
+    <vehicles loaded="5190" inserted="5189" running="0" waiting="0"/>
+    <teleports total="53" jam="5" yield="47" wrongLane="1"/>
+    <safety collisions="480" emergencyStops="0" emergencyBraking="116"/>
+    <persons loaded="0" running="0" jammed="0"/>
+    <personTeleports total="0" abortWait="0" wrongDest="0"/>
+    <vehicleTripStatistics count="5189" routeLength="633.98" speed="8.38" duration="115.75" waitingTime="61.69" timeLoss="83.82" departDelay="3.38" departDelayWaiting="0.00" totalTravelTime="600644.00" totalDepartDelay="17528.00"/>
+    <pedestrianStatistics number="0" routeLength="0.00" duration="0.00" timeLoss="0.00"/>
+    <rideStatistics number="0"/>
+    <transportStatistics number="0"/>
+</statistics>

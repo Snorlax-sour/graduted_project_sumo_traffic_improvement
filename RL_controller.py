@@ -501,7 +501,7 @@ def main():
         print(f"✅ 模型載入成功。探索率 Epsilon 鎖定為 0。")
         
     # 👑 3. 準備 SUMO 指令
-    sim_seed = 42 if is_train_mode else 100 
+    sim_seed = 42 if is_train_mode else 100
     # ✅ 新增這行：如果是 Train，就傳 None；如果是 Test，才傳檔名
     xml_out = f"tripinfo_RL_{instance_id}_{timestamp}.xml"
     sumoCmd = sumo_utils.build_sumo_cmd(
@@ -520,7 +520,7 @@ def main():
     # ==========================================
     if is_train_mode:
         GOAL_EPISODES = 150       # 🎯 你的最終總目標
-        EPISODES_PER_RUN = 30     # 🎯 每次啟動只跑 30 局就自動關閉，避免記憶體爆炸
+        EPISODES_PER_RUN = 50     # 🎯 每次啟動只跑 30 局就自動關閉，避免記憶體爆炸
         
         # 1. 詢問存檔：目前已經練了幾局？
         current_trained_count = get_and_update_training_stats(instance_id, increment=False)
@@ -535,7 +535,8 @@ def main():
         
         print(f"🔥 [啟動分段訓練] 總進度: {current_trained_count} / {GOAL_EPISODES}")
         print(f"🚀 本次執行將從第 {start_ep} 局 跑到第 {end_ep} 局 ...")
-        
+        ep_cols = 0
+        ep_dls = 0
         for episode in range(start_ep, end_ep + 1):
             print(f"\n--- 🎬 開始執行第 {episode} 局 ---")
             
@@ -567,7 +568,7 @@ def main():
         
         # ✅ 把真實的數據傳給腳本
         tripinfo_analyzer.analyze_tripinfo(
-            xml_filepath=tripinfo_filename, 
+            xml_filepath=xml_out, 
             deadlocks=test_dls,    # 替換掉原本寫死的 0
             collisions=test_cols   # 替換掉原本寫死的 0
         )

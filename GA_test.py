@@ -11,7 +11,7 @@ ACTION_INTERVAL = 10
 TRAFFIC_LIGHT_ID = "1253678773"
 SUMO_CONFIG_FILE = "osm.sumocfg"
 MAX_SIMULATION_STEPS = 8000
-SIM_SEED = 100  # 測試基準種子 (與 Baseline 保持一致以確保公平)
+SIM_SEED = 42  # 測試基準種子 (與 Baseline 保持一致以確保公平)
 GA_RESULT_PATH = "./GA_best_result.csv"
 
 

@@ -92,6 +92,9 @@ def extract_ga_data(filepath):
         return [], []
 
     grouped = df.groupby('generation')[score_col].min()
+    if grouped.empty:
+        print(f"   ⚠️ {os.path.basename(filepath)} 有欄位但無資料行，跳過")
+        return [], []
     return list(grouped.index), list(grouped.values)
 
 
@@ -210,6 +213,10 @@ def plot_ga_single(csv_files):
             continue
         print(f"📊 [single] 處理: {os.path.basename(filepath)}")
         generations, best_scores = extract_ga_data(filepath)
+
+        if not generations or not best_scores:
+            print(f"   → 跳過（無有效數據，不產生圖檔）")
+            continue
 
         plt.figure(figsize=(10, 6))
         plt.plot(generations, best_scores, marker='o', linestyle='-',

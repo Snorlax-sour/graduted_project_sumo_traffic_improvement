@@ -30,7 +30,7 @@ class DQNAgent:
         self.discount_factor = 0.99 # 0.95 代表它大約只考慮未來 20 步的事情。
         self.exploration_rate = 1.0
         self.min_exploration = 0.01
-        self.exploration_decay = 0.99995
+        self.exploration_decay = 0.9999
         self.learning_rate = 0.001
         self.update_target_freq = 800 # 讓目標網路更新的頻率稍微降低
         self.train_counter = 0
